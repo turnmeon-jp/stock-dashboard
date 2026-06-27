@@ -1,65 +1,59 @@
-import Image from "next/image";
+import { readSignals } from "@/app/lib/signals";
+import { fmtYen } from "@/app/lib/format";
+import { TOTAL_CAPITAL } from "@/app/lib/constants";
+import DashboardTabs from "@/app/components/DashboardTabs";
+import RegimeBanner from "@/app/components/RegimeBanner";
 
-export default function Home() {
+// signals.json をリクエスト毎に読み直す
+export const dynamic = "force-dynamic";
+
+function fmtDateTime(s: string | null): string {
+  if (!s) return "-";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return s;
+  return d.toLocaleString("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export default async function Home() {
+  const data = await readSignals();
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <>
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto max-w-7xl px-2 py-3 sm:px-4 sm:py-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-1 sm:gap-2">
+            <h1 className="text-base font-bold text-slate-800 sm:text-xl">株式運用ダッシュボード</h1>
+            <p className="text-xs text-slate-400">5銘柄集中・手動執行</p>
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
+            <span>生成: <span className="text-slate-700">{fmtDateTime(data.generated_at)}</span></span>
+            <span>基準日: <span className="text-slate-700">{data.as_of ?? "-"}</span></span>
+            <span>
+              候補 <span className="text-slate-700">{data.n_candidates}件</span>
+              <span className="mx-1 text-slate-300">/</span>
+              適合 <span className="text-emerald-700 font-medium">{data.n_edge_aligned}件</span>
+            </span>
+            <span>総資金 <span className="text-slate-700 font-mono">{fmtYen(TOTAL_CAPITAL)}</span></span>
+          </div>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+      </header>
+
+      <main className="mx-auto w-full max-w-7xl flex-1 px-2 py-4 sm:px-4 sm:py-6">
+        <RegimeBanner regime={data.regime} />
+        <DashboardTabs candidates={data.candidates} message={data.message} />
       </main>
-    </div>
+
+      <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto max-w-7xl px-4 py-3 text-center text-[11px] text-slate-400">
+          本ツールは自己運用の補助を目的としたものであり、投資助言ではありません。投資判断は自己責任で行ってください。
+        </div>
+      </footer>
+    </>
   );
 }

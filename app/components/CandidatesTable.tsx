@@ -1,0 +1,361 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import type { Candidate } from "@/app/lib/types";
+import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
+import { setupLabel, TOP_N } from "@/app/lib/constants";
+
+function OrderPlan({ c }: { c: Candidate }) {
+  return (
+    <div className="bg-amber-50 border-l-4 border-amber-400 p-3 sm:p-4 text-sm leading-relaxed text-slate-800">
+      <p className="font-semibold mb-2">
+        IFDOCO注文プラン — {c.code} {c.name}
+        <span className="ml-2 text-xs font-normal text-slate-500">
+          {c.available_at ?? "-"} 以降に発注
+        </span>
+      </p>
+
+      {/* 第1注文 (IF) */}
+      <div className="mb-2 rounded border border-amber-300 bg-white px-3 py-2">
+        <p className="mb-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          ① IFD 第1注文（エントリー）
+        </p>
+        <p className="text-slate-800">
+          買い指値{" "}
+          <span className="font-mono font-bold text-blue-700">{fmtNum(c.trigger_price)}</span>
+          {" "}×{" "}
+          <span className="font-semibold">{fmtInt(c.shares)}株</span>
+          <span className="ml-2 text-xs text-slate-500">投資額 {fmtYen(c.invested)}</span>
+        </p>
+      </div>
+
+      {/* 第2注文 (OCO) — 第1注文約定後に有効化 */}
+      <div className="rounded border border-amber-300 bg-white px-3 py-2">
+        <p className="mb-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">
+          ② OCO 第2注文（第1注文約定後に自動発注）
+        </p>
+        <div className="flex flex-col gap-1 sm:flex-row sm:gap-6">
+          <p>
+            <span className="text-xs text-slate-500">損切（逆指値）</span>{" "}
+            <span className="font-mono font-bold text-rose-600">{fmtNum(c.stop_loss)}</span>
+          </p>
+          <p>
+            <span className="text-xs text-slate-500">OR　利確（指値）</span>{" "}
+            <span className="font-mono font-bold text-emerald-700">{fmtNum(c.tp_first)}</span>
+          </p>
+        </div>
+        <p className="mt-1 text-xs text-slate-500">
+          許容損失 {fmtYen(c.risk_yen)}（{fmtPct(c.effective_r_pct, 2)}）
+          {c.trail_note ? `　${c.trail_note}` : ""}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---- スマホ用カード ---- */
+function CandidateCard({
+  c,
+  isTop,
+  rank,
+  isOpen,
+  onToggle,
+}: {
+  c: Candidate;
+  isTop: boolean;
+  rank: number;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const dimmed = !c.edge_aligned;
+  return (
+    <div
+      className={`rounded-lg border shadow-sm overflow-hidden ${
+        isTop ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white"
+      } ${dimmed ? "opacity-60" : ""}`}
+    >
+      {/* カードヘッダ */}
+      <div
+        className="flex items-center gap-2 px-3 py-2.5 cursor-pointer"
+        onClick={onToggle}
+      >
+        {isTop && (
+          <span className="inline-flex shrink-0 items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold">
+            {rank}
+          </span>
+        )}
+        {c.edge_aligned && !isTop && (
+          <span className="shrink-0 inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+            ✓適合
+          </span>
+        )}
+        <div className="min-w-0 flex-1">
+          <span className="font-mono text-xs text-slate-500">{c.code}</span>{" "}
+          <span className="font-medium text-sm text-slate-800">{c.name}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="inline-block rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
+            {setupLabel(c.setup_type)}
+          </span>
+          <span className={`text-[10px] transition-transform ${isOpen ? "rotate-180" : ""}`}>▼</span>
+        </div>
+      </div>
+
+      {/* 主要数値グリッド */}
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-3 pb-2.5 text-xs">
+        <div>
+          <span className="text-slate-400">指値</span>{" "}
+          <span className="font-mono font-semibold text-slate-800">{fmtNum(c.trigger_price)}</span>
+        </div>
+        <div>
+          <span className="text-slate-400">損切</span>{" "}
+          <span className="font-mono font-semibold text-rose-600">{fmtNum(c.stop_loss)}</span>
+        </div>
+        <div>
+          <span className="text-slate-400">利確目安</span>{" "}
+          <span className="font-mono font-semibold text-emerald-700">{fmtNum(c.tp_first)}</span>
+        </div>
+        <div>
+          <span className="text-slate-400">株数</span>{" "}
+          <span className="font-mono">{fmtInt(c.shares)}株</span>
+        </div>
+        <div>
+          <span className="text-slate-400">投資額</span>{" "}
+          <span className="font-mono">{fmtInt(c.invested)}円</span>
+        </div>
+        <div>
+          <span className="text-slate-400">許容損失</span>{" "}
+          <span className="font-mono">{fmtInt(c.risk_yen)}円</span>{" "}
+          <span className="text-slate-400">({fmtPct(c.effective_r_pct, 2)})</span>
+        </div>
+        {/* 補助指標: 小さく */}
+        <div className="text-slate-500">
+          RSI <span className="font-mono">{fmtNum(c.rsi14)}</span>
+          <span className="mx-1 text-slate-300">|</span>
+          RS120 <span className="font-mono">{fmtPct(c.rs120)}</span>
+        </div>
+        <div className="text-slate-500">
+          SMA25乖離 <span className="font-mono">{fmtPct(c.dist_sma25_pct)}</span>
+        </div>
+      </div>
+
+      {/* 市場/セクター + 執行可能日 */}
+      <div className="flex items-center justify-between px-3 pb-2 text-[10px] text-slate-400">
+        <span>{c.market} / {c.sector}</span>
+        <span>{c.available_at ?? "-"} 以降</span>
+      </div>
+
+      {/* 注文プランアコーディオン */}
+      {isOpen && <OrderPlan c={c} />}
+
+      {/* 詳細ボタン */}
+      <div className="px-3 pb-3 pt-1">
+        <Link
+          href={`/stock/${c.code}`}
+          className="block w-full rounded border border-blue-300 py-1.5 text-center text-xs font-medium text-blue-700 hover:bg-blue-50"
+        >
+          詳細チャートを開く
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+export default function CandidatesTable({ candidates }: { candidates: Candidate[] }) {
+  const [openCode, setOpenCode] = useState<string | null>(null);
+  const [edgeOnly, setEdgeOnly] = useState(true);
+
+  const visible = edgeOnly ? candidates.filter((c) => c.edge_aligned) : candidates;
+
+  const topCodes = new Set(
+    candidates.filter((c) => c.edge_aligned).slice(0, TOP_N).map((c) => c.code)
+  );
+
+  const cols = [
+    "銘柄",
+    "市場",
+    "セクター",
+    "型",
+    "指値",
+    "損切",
+    "利確目安",
+    "株数",
+    "投資額",
+    "許容損失",
+    "RSI",
+    "SMA25乖離",
+    "RS120(%)",
+    "売買代金(億)",
+    "適合",
+    "執行可能日",
+    "",
+  ];
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <label className="inline-flex cursor-pointer select-none items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={edgeOnly}
+            onChange={(e) => setEdgeOnly(e.target.checked)}
+            className="h-4 w-4 accent-emerald-600"
+          />
+          検証エッジ適合のみ表示
+        </label>
+        <span className="text-xs text-slate-500 hidden sm:inline">
+          適合=中型流動性×中期トレンド健全×押し目（バックテストで期待値プラスの条件）
+        </span>
+      </div>
+
+      {visible.length === 0 ? (
+        <p className="text-slate-500 py-8 text-center">
+          {edgeOnly
+            ? "適合（edge_aligned）候補はありません。"
+            : "本日のエントリー候補はありません。"}
+        </p>
+      ) : (
+        <>
+          {/* スマホ: カード形式 */}
+          <div className="md:hidden space-y-3">
+            {visible.map((c) => {
+              const isTop = topCodes.has(c.code);
+              const rank = isTop ? [...topCodes].indexOf(c.code) + 1 : 0;
+              const isOpen = openCode === c.code;
+              return (
+                <CandidateCard
+                  key={c.code}
+                  c={c}
+                  isTop={isTop}
+                  rank={rank}
+                  isOpen={isOpen}
+                  onToggle={() => setOpenCode(isOpen ? null : c.code)}
+                />
+              );
+            })}
+          </div>
+
+          {/* デスクトップ: テーブル形式 */}
+          <div className="hidden md:block overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 text-left">
+                  {cols.map((h) => (
+                    <th key={h} className="px-3 py-2 font-medium whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((c) => {
+                  const isTop = topCodes.has(c.code);
+                  const isOpen = openCode === c.code;
+                  const rank = isTop ? [...topCodes].indexOf(c.code) + 1 : 0;
+                  return (
+                    <FragmentRow
+                      key={c.code}
+                      c={c}
+                      isTop={isTop}
+                      isOpen={isOpen}
+                      colSpan={cols.length}
+                      rank={rank}
+                      onToggle={() => setOpenCode(isOpen ? null : c.code)}
+                    />
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function FragmentRow({
+  c,
+  isTop,
+  isOpen,
+  colSpan,
+  rank,
+  onToggle,
+}: {
+  c: Candidate;
+  isTop: boolean;
+  isOpen: boolean;
+  colSpan: number;
+  rank: number;
+  onToggle: () => void;
+}) {
+  const dimmed = !c.edge_aligned;
+  return (
+    <>
+      <tr
+        onClick={onToggle}
+        className={`cursor-pointer border-t border-slate-100 hover:bg-blue-50 ${
+          isTop ? "bg-emerald-50" : ""
+        } ${dimmed ? "text-slate-400" : ""} ${isOpen ? "bg-blue-50" : ""}`}
+      >
+        <td className="px-3 py-2 whitespace-nowrap">
+          <div className="flex items-center gap-1.5">
+            {isTop && (
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500 text-white text-[10px] font-bold">
+                {rank}
+              </span>
+            )}
+            <span className="font-mono text-slate-500">{c.code}</span>
+            <span className={dimmed ? "" : "font-medium"}>{c.name}</span>
+          </div>
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">{c.market}</td>
+        <td className="px-3 py-2 whitespace-nowrap">{c.sector}</td>
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="inline-block rounded bg-slate-200 px-1.5 py-0.5 text-xs text-slate-700">
+            {setupLabel(c.setup_type)}
+          </span>
+        </td>
+        <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtNum(c.trigger_price)}</td>
+        <td className={`px-3 py-2 text-right font-mono whitespace-nowrap ${dimmed ? "" : "text-rose-600"}`}>{fmtNum(c.stop_loss)}</td>
+        <td className={`px-3 py-2 text-right font-mono whitespace-nowrap ${dimmed ? "" : "text-emerald-700"}`}>{fmtNum(c.tp_first)}</td>
+        <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtInt(c.shares)}</td>
+        <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtInt(c.invested)}</td>
+        <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
+          {fmtInt(c.risk_yen)}
+          <span className="text-slate-400 text-xs"> ({fmtPct(c.effective_r_pct, 2)})</span>
+        </td>
+        <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtNum(c.rsi14)}</td>
+        <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtPct(c.dist_sma25_pct)}</td>
+        <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtPct(c.rs120)}</td>
+        <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtNum(c.turnover_oku)}</td>
+        <td className="px-3 py-2 whitespace-nowrap text-center">
+          {c.edge_aligned ? (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+              ✓ 適合
+            </span>
+          ) : (
+            <span className="text-xs text-slate-300">—</span>
+          )}
+        </td>
+        <td className="px-3 py-2 whitespace-nowrap">{c.available_at ?? "-"}</td>
+        <td className="px-3 py-2 whitespace-nowrap text-center">
+          <Link
+            href={`/stock/${c.code}`}
+            onClick={(e) => e.stopPropagation()}
+            className="rounded border border-blue-200 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+          >
+            詳細
+          </Link>
+        </td>
+      </tr>
+      {isOpen && (
+        <tr>
+          <td colSpan={colSpan} className="p-0">
+            <OrderPlan c={c} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
