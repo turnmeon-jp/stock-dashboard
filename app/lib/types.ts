@@ -1,5 +1,116 @@
 // signals.json のスキーマ定義
 
+// exit_monitor.json のスキーマ（出口監視）
+export interface ExitHolding {
+  code: string;
+  name: string;
+  shares: number;
+  cost: number;
+  theme?: string;
+  cur?: number;
+  pl_pct?: number;
+  sma25?: number;
+  sma75?: number;
+  dist_pct?: number;
+  stop_level?: number;
+  action?: string;
+  error?: string;
+}
+
+export interface ExitWatch {
+  code: string;
+  name: string;
+  cur?: number;
+  sma25?: number;
+  sma75?: number;
+  dist_pct?: number;
+  rsi?: number;
+  status?: string;
+  error?: string;
+}
+
+export interface ExitMonitorData {
+  updated: string;
+  regime: string;
+  holdings: ExitHolding[];
+  watchlist: ExitWatch[];
+  theme_concentration: Record<string, number>;
+}
+
+// screen.json のスキーマ（気になる銘柄スクリーナー）
+export interface ScreenTrend {
+  code: string;
+  name: string;
+  cur?: number;
+  sma25?: number;
+  sma75?: number;
+  dist_pct?: number;
+  rsi?: number;
+  status?: string;
+  error?: string;
+}
+
+export interface ScreenGrowth {
+  growth_pass?: boolean | null;
+  growth_score?: number | null;
+  rev_yoy?: number | null;
+  as_of?: string | null;
+  next_disclosure_est?: string | null;
+  error?: string;
+}
+
+export interface ScreenConcentration {
+  theme_concentration: Record<string, number>;
+  warn?: string | null;
+}
+
+export interface ScreenSource {
+  url?: string;
+  title?: string;
+  summary?: string;
+  catalyst?: string;
+}
+
+export interface ScreenVerdict {
+  call?: string;
+  trend_read?: string;
+  growth_read?: string;
+  risk?: string;
+  rationale?: string;
+  judgment?: string; // 旧スキーマ後方互換
+}
+
+export interface ScreenReasoning {
+  trend?: string;
+  growth?: string;
+  concentration?: string;
+}
+
+export interface ScreenEntry {
+  id: string;
+  input: string;
+  note?: string | null;
+  theme?: string | null;
+  code?: string | null;
+  name?: string | null;
+  status: "processing" | "done" | "error";
+  error?: string;
+  candidates?: { code: string; name: string }[];
+  screened_at?: string;
+  trend?: ScreenTrend;
+  growth?: ScreenGrowth;
+  concentration?: ScreenConcentration;
+  reasoning?: ScreenReasoning; // 機械結果の「なぜ」（決定論・両経路）
+  source?: ScreenSource; // ヘッドレスagentがURL要約を付与
+  verdict?: ScreenVerdict; // ヘッドレスagentが定性落選判定を付与
+  worker_exit?: { error?: string | null; at?: string }; // route がワーカー終了を記録
+}
+
+export interface ScreenStore {
+  updated?: string;
+  screens: ScreenEntry[];
+}
+
 export interface Candidate {
   code: string;
   name: string;
