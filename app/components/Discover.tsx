@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { DiscoverResponse, DiscoverStock } from "@/app/lib/discover";
 import { fmtNum, fmtPct } from "@/app/lib/format";
@@ -32,6 +32,9 @@ function phaseTone(p: string | null): string {
 const effPer = (s: DiscoverStock): number | null =>
   s.per != null && s.per > 0 ? s.per : s.forward_per != null && s.forward_per > 0 ? s.forward_per : null;
 
+const setupLabel = (t: string | null): string =>
+  t === "pullback" ? "押し目" : t === "breakout" ? "ブレイク" : t ?? "-";
+
 type SortKey = "growth_score" | "rev_yoy" | "per" | "roe_pct" | "volume_ratio";
 const SORTS: { key: SortKey; label: string; asc?: boolean }[] = [
   { key: "growth_score", label: "成長スコア" },
@@ -41,7 +44,7 @@ const SORTS: { key: SortKey; label: string; asc?: boolean }[] = [
   { key: "volume_ratio", label: "出来高急増" },
 ];
 
-export default function Discover() {
+export default function Discover({ onScreen }: { onScreen?: (code: string) => void }) {
   const [data, setData] = useState<DiscoverResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -52,8 +55,16 @@ export default function Discover() {
   const [minRev, setMinRev] = useState(10); // 増収率 % 下限
   const [maxPer, setMaxPer] = useState(40); // PER 上限
   const [passOnly, setPassOnly] = useState(false);
+  const [setupOnly, setSetupOnly] = useState(false); // エントリー設定あり（signals由来）
   const [sort, setSort] = useState<SortKey>("growth_score");
   const [selected, setSelected] = useState<string | null>(null);
+
+  // 「狙い目」プリセット: 成長通過 × エントリー設定あり × 割安 に一括設定
+  const applyAim = useCallback(() => {
+    setMarket(""); setSector(""); setQ("");
+    setPassOnly(true); setSetupOnly(true); setMinRev(10); setMaxPer(20);
+    setSort("growth_score");
+  }, []);
 
   useEffect(() => {
     fetch("/api/discover")
@@ -75,6 +86,7 @@ export default function Discover() {
       if (market && s.market !== market) return false;
       if (sector && s.sector !== sector) return false;
       if (passOnly && s.growth_pass !== true) return false;
+      if (setupOnly && !s.setup_type) return false;
       if (qq && !(s.code.includes(qq) || s.name.toLowerCase().includes(qq))) return false;
       if (minRev > -100 && (s.rev_yoy == null || s.rev_yoy * 100 < minRev)) return false;
       if (maxPer < 200) {
@@ -83,7 +95,7 @@ export default function Discover() {
       }
       return true;
     });
-  }, [data, q, market, sector, passOnly, minRev, maxPer]);
+  }, [data, q, market, sector, passOnly, setupOnly, minRev, maxPer]);
 
   const ranked = useMemo(() => {
     const asc = SORTS.find((x) => x.key === sort)?.asc ?? false;
@@ -112,15 +124,16 @@ export default function Discover() {
     <div className="space-y-5">
       {/* 注意書き: 自動シグナルではない */}
       <p className="rounded bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-500">
-        全{data.n}銘柄を横断スクリーニング（割安算出 {data.n_fund} / 成長算出 {data.n_growth}・as_of {data.as_of}）。
+        全{data.n}銘柄を横断スクリーニング（割安 {data.n_fund} / 成長 {data.n_growth} / エントリー設定 {data.n_setup}・as_of {data.as_of}）。
         <b className="text-slate-600">裁量エントリーのアイデア生成用</b>であり自動売買シグナルではありません。
-        割安/局面/成長ラベルは下のしきい値で即変わります。
+        「狙い目」で<b className="text-emerald-700">成長×設定あり×割安</b>に一発で絞れます。割安/局面/成長ラベルは下のしきい値で即変わります。
       </p>
 
       {/* コントロール */}
       <Controls
-        {...{ q, setQ, market, setMarket, sector, setSector, sectors, minRev, setMinRev, maxPer, setMaxPer, passOnly, setPassOnly, sort, setSort }}
+        {...{ q, setQ, market, setMarket, sector, setSector, sectors, minRev, setMinRev, maxPer, setMaxPer, passOnly, setPassOnly, setupOnly, setSetupOnly, sort, setSort }}
         count={filtered.length}
+        onAim={applyAim}
       />
 
       {/* 割安×成長 散布図 + セクターヒートマップ */}
@@ -130,10 +143,10 @@ export default function Discover() {
       </div>
 
       {/* レーダー詳細（選択時） */}
-      {sel && <RadarDetail s={sel} onClose={() => setSelected(null)} />}
+      {sel && <RadarDetail s={sel} onClose={() => setSelected(null)} onScreen={onScreen} />}
 
       {/* ランキング表 */}
-      <RankingTable ranked={ranked} selected={selected} onSelect={setSelected} />
+      <RankingTable ranked={ranked} selected={selected} onSelect={setSelected} onScreen={onScreen} />
     </div>
   );
 }
@@ -146,8 +159,10 @@ function Controls(p: {
   minRev: number; setMinRev: (v: number) => void;
   maxPer: number; setMaxPer: (v: number) => void;
   passOnly: boolean; setPassOnly: (v: boolean) => void;
+  setupOnly: boolean; setSetupOnly: (v: boolean) => void;
   sort: SortKey; setSort: (v: SortKey) => void;
   count: number;
+  onAim: () => void;
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm space-y-3">
@@ -172,8 +187,15 @@ function Controls(p: {
         </select>
         <label className="inline-flex items-center gap-1.5 cursor-pointer text-slate-700">
           <input type="checkbox" checked={p.passOnly} onChange={(e) => p.setPassOnly(e.target.checked)} className="h-4 w-4 accent-emerald-600" />
-          成長フィルタ通過のみ
+          成長通過のみ
         </label>
+        <label className="inline-flex items-center gap-1.5 cursor-pointer text-slate-700">
+          <input type="checkbox" checked={p.setupOnly} onChange={(e) => p.setSetupOnly(e.target.checked)} className="h-4 w-4 accent-blue-600" />
+          エントリー設定あり
+        </label>
+        <button onClick={p.onAim} className="rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700">
+          🎯 狙い目
+        </button>
         <span className="text-xs text-slate-500 ml-auto">{p.count}件</span>
       </div>
       <div className="flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-600">
@@ -296,7 +318,7 @@ function SectorHeatmap(p: { stocks: DiscoverStock[]; active: string; onPick: (s:
 
 /* ------------------------------------------------------------------ */
 // 5軸レーダー: 成長 / 増収 / ROE / 利益率 / 割安。
-function RadarDetail(p: { s: DiscoverStock; onClose: () => void }) {
+function RadarDetail(p: { s: DiscoverStock; onClose: () => void; onScreen?: (code: string) => void }) {
   const s = p.s;
   const per = effPer(s);
   const axes = [
@@ -347,11 +369,34 @@ function RadarDetail(p: { s: DiscoverStock; onClose: () => void }) {
           <div><span className="text-slate-400">PBR</span> <span className="font-mono text-slate-800">{s.pbr != null ? fmtNum(s.pbr, 2) : "-"}</span></div>
           <div><span className="text-slate-400">RSI</span> <span className="font-mono text-slate-800">{s.rsi != null ? fmtNum(s.rsi) : "-"}</span></div>
           <div><span className="text-slate-400">局面</span> <span className="font-mono text-slate-800">{techPhase(s) ?? "-"}</span></div>
-          <div className="col-span-2 sm:col-span-3 mt-1">
+          {/* エントリー設定（signals.json 由来のヒント） */}
+          <div className="col-span-2 sm:col-span-3 mt-1 rounded bg-slate-50 px-3 py-2 text-xs">
+            {s.setup_type ? (
+              <span className="text-slate-700">
+                <b className={s.edge_aligned ? "text-emerald-700" : "text-blue-700"}>
+                  エントリー設定: {setupLabel(s.setup_type)}{s.edge_aligned ? "（edge適合）" : ""}
+                </b>
+                {" "}トリガー <span className="font-mono text-blue-700">{s.trigger_price != null ? fmtNum(s.trigger_price) : "-"}</span>
+                {" / "}損切り <span className="font-mono text-rose-600">{s.stop_loss != null ? fmtNum(s.stop_loss) : "-"}</span>
+                {" / "}利確目安 <span className="font-mono text-emerald-700">{s.tp_first != null ? fmtNum(s.tp_first) : "-"}</span>
+              </span>
+            ) : (
+              <span className="text-slate-400">エントリー設定なし（押し目/ブレイク未成立）</span>
+            )}
+          </div>
+          <div className="col-span-2 sm:col-span-3 mt-1 flex items-center gap-2 flex-wrap">
+            {p.onScreen && (
+              <button
+                onClick={() => p.onScreen!(s.code)}
+                className="inline-block rounded bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                気になる銘柄で精査 →
+              </button>
+            )}
             <Link href={`/stock/${s.code}`} className="inline-block rounded border border-blue-300 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">
-              詳細チャートを開く →
+              詳細チャート →
             </Link>
-            <span className="ml-2 text-[10px] text-slate-400">財務基準日 {s.fund_as_of ?? "-"} / 次回決算目安 {s.next_disclosure_est ?? "-"}</span>
+            <span className="text-[10px] text-slate-400">財務基準日 {s.fund_as_of ?? "-"} / 次回決算目安 {s.next_disclosure_est ?? "-"}</span>
           </div>
         </div>
       </div>
@@ -360,8 +405,8 @@ function RadarDetail(p: { s: DiscoverStock; onClose: () => void }) {
 }
 
 /* ------------------------------------------------------------------ */
-function RankingTable(p: { ranked: DiscoverStock[]; selected: string | null; onSelect: (c: string) => void }) {
-  const cols = ["銘柄", "市場", "セクター", "局面", "成長", "増収率", "PER", "PBR", "ROE", "利益率", "出来高", "決算目安"];
+function RankingTable(p: { ranked: DiscoverStock[]; selected: string | null; onSelect: (c: string) => void; onScreen?: (code: string) => void }) {
+  const cols = ["銘柄", "市場", "セクター", "局面", "設定", "成長", "増収率", "PER", "PBR", "ROE", "出来高", "トリガー", "損切り", "精査"];
   const TOP = 200; // 表示上限（描画負荷対策）
   const rows = p.ranked.slice(0, TOP);
   return (
@@ -394,6 +439,13 @@ function RankingTable(p: { ranked: DiscoverStock[]; selected: string | null; onS
                   <td className="px-2.5 py-1.5 whitespace-nowrap">
                     <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] ${phaseTone(ph)}`}>{ph ?? "-"}</span>
                   </td>
+                  <td className="px-2.5 py-1.5 whitespace-nowrap">
+                    {s.setup_type ? (
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${s.edge_aligned ? "bg-emerald-100 text-emerald-700" : "bg-blue-50 text-blue-700"}`}>
+                        {setupLabel(s.setup_type)}{s.edge_aligned ? "✓" : ""}
+                      </span>
+                    ) : <span className="text-[10px] text-slate-300">—</span>}
+                  </td>
                   <td className="px-2.5 py-1.5 text-right font-mono whitespace-nowrap">{s.growth_score != null ? fmtNum(s.growth_score) : "-"}</td>
                   <td className={`px-2.5 py-1.5 text-right font-mono whitespace-nowrap ${(s.rev_yoy ?? 0) > 0 ? "text-emerald-600" : (s.rev_yoy ?? 0) < 0 ? "text-rose-600" : ""}`}>
                     {s.rev_yoy != null ? fmtPct(s.rev_yoy * 100) : "-"}
@@ -401,9 +453,19 @@ function RankingTable(p: { ranked: DiscoverStock[]; selected: string | null; onS
                   <td className="px-2.5 py-1.5 text-right font-mono whitespace-nowrap">{per != null ? fmtNum(per) : "-"}</td>
                   <td className="px-2.5 py-1.5 text-right font-mono whitespace-nowrap">{s.pbr != null ? fmtNum(s.pbr, 2) : "-"}</td>
                   <td className="px-2.5 py-1.5 text-right font-mono whitespace-nowrap">{s.roe_pct != null ? fmtPct(s.roe_pct) : "-"}</td>
-                  <td className="px-2.5 py-1.5 text-right font-mono whitespace-nowrap">{s.opm_pct != null ? fmtPct(s.opm_pct) : "-"}</td>
                   <td className="px-2.5 py-1.5 text-right font-mono whitespace-nowrap">{s.volume_ratio != null ? `${fmtNum(s.volume_ratio, 1)}x` : "-"}</td>
-                  <td className="px-2.5 py-1.5 whitespace-nowrap text-xs text-slate-400">{s.next_disclosure_est ?? "-"}</td>
+                  <td className="px-2.5 py-1.5 text-right font-mono whitespace-nowrap text-blue-700">{s.trigger_price != null ? fmtNum(s.trigger_price) : "-"}</td>
+                  <td className="px-2.5 py-1.5 text-right font-mono whitespace-nowrap text-rose-600">{s.stop_loss != null ? fmtNum(s.stop_loss) : "-"}</td>
+                  <td className="px-2.5 py-1.5 whitespace-nowrap text-center">
+                    {p.onScreen && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); p.onScreen!(s.code); }}
+                        className="rounded border border-blue-200 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
+                      >
+                        精査
+                      </button>
+                    )}
+                  </td>
                 </tr>
               );
             })}

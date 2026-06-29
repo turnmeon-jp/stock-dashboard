@@ -28,6 +28,12 @@ export interface DiscoverStock {
   roe_pct: number | null;
   opm_pct: number | null;
   fund_as_of: string | null;
+  // エントリー設定（signals.json 由来。設定なしは setup_type=null / edge_aligned=false）
+  setup_type: string | null;
+  trigger_price: number | null;
+  stop_loss: number | null;
+  tp_first: number | null;
+  edge_aligned: boolean;
 }
 
 export interface DiscoverResponse {
@@ -38,11 +44,12 @@ export interface DiscoverResponse {
   n: number;
   n_fund: number;
   n_growth: number;
+  n_setup: number;
   stocks: DiscoverStock[];
 }
 
 function empty(message: string, ok: boolean): DiscoverResponse {
-  return { ok, message, generated_at: null, as_of: null, n: 0, n_fund: 0, n_growth: 0, stocks: [] };
+  return { ok, message, generated_at: null, as_of: null, n: 0, n_fund: 0, n_growth: 0, n_setup: 0, stocks: [] };
 }
 
 export async function readDiscover(): Promise<DiscoverResponse> {
@@ -70,6 +77,7 @@ export async function readDiscover(): Promise<DiscoverResponse> {
     n: typeof data.n === "number" ? data.n : stocks.length,
     n_fund: typeof data.n_fund === "number" ? data.n_fund : 0,
     n_growth: typeof data.n_growth === "number" ? data.n_growth : 0,
+    n_setup: typeof data.n_setup === "number" ? data.n_setup : 0,
     stocks,
   };
 }

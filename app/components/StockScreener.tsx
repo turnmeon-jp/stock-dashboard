@@ -145,7 +145,13 @@ function ResultCard({ e, pendingVerdict }: { e: ScreenEntry; pendingVerdict: boo
   );
 }
 
-export default function StockScreener() {
+export default function StockScreener({
+  autoCode,
+  onConsumed,
+}: {
+  autoCode?: string | null;
+  onConsumed?: () => void;
+} = {}) {
   const [input, setInput] = useState("");
   const [note, setNote] = useState("");
   const [store, setStore] = useState<ScreenStore>({ screens: [] });
@@ -198,8 +204,8 @@ export default function StockScreener() {
     };
   }, [activeJob]);
 
-  const submit = useCallback(async () => {
-    const q = input.trim();
+  const submit = useCallback(async (override?: string) => {
+    const q = (override ?? input).trim();
     if (!q || submitting || activeJob) return;
     setSubmitting(true);
     setError(null);
@@ -222,6 +228,16 @@ export default function StockScreener() {
       setSubmitting(false);
     }
   }, [input, note, submitting, activeJob]);
+
+  // 発掘タブからコードを受け取ったら自動でスクリーニング（ハック→精査の動線）
+  useEffect(() => {
+    if (!autoCode) return;
+    setInput(autoCode);
+    submit(autoCode);
+    onConsumed?.();
+    // autoCode の変化のみで発火（submit はクロージャ参照）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoCode]);
 
   const activeEntry = activeJob ? store.screens.find((x) => x.id === activeJob.id) : undefined;
   const history = store.screens.filter((x) => x.id !== activeJob?.id);
@@ -249,7 +265,7 @@ export default function StockScreener() {
         />
         <div className="flex items-center gap-3">
           <button
-            onClick={submit}
+            onClick={() => submit()}
             disabled={submitting || !!activeJob || !input.trim()}
             className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:bg-slate-300"
           >

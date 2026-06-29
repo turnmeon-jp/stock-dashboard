@@ -67,6 +67,13 @@ export default function DashboardTabs({
     window.history.pushState({}, "", url);
   }, []);
 
+  // 発掘→気になる銘柄の動線: コードを screen タブへ渡して自動スクリーニング
+  const [screenCode, setScreenCode] = useState<string | null>(null);
+  const requestScreen = useCallback((code: string) => {
+    setScreenCode(code);
+    switchTab("screen");
+  }, [switchTab]);
+
   const tabClass = (t: Tab) =>
     `tab-btn px-3 py-2 text-xs sm:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
       tab === t
@@ -101,7 +108,7 @@ export default function DashboardTabs({
       )}
       {mounted.has("discover") && (
         <div style={{ display: tab === "discover" ? "block" : "none" }}>
-          <Discover />
+          <Discover onScreen={requestScreen} />
         </div>
       )}
       {mounted.has("exit") && (
@@ -111,7 +118,7 @@ export default function DashboardTabs({
       )}
       {mounted.has("screen") && (
         <div style={{ display: tab === "screen" ? "block" : "none" }}>
-          <StockScreener />
+          <StockScreener autoCode={screenCode} onConsumed={() => setScreenCode(null)} />
         </div>
       )}
       {mounted.has("charts") && (
