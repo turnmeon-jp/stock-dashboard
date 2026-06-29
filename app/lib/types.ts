@@ -86,6 +86,44 @@ export interface ScreenReasoning {
   concentration?: string;
 }
 
+// 決算ハイライト（F・機械算出）
+export interface ScreenEarnings {
+  period?: string | null;
+  disclosed?: string | null;
+  sales?: number | null;
+  op?: number | null;
+  np?: number | null;
+  sales_yoy?: number | null;
+  op_yoy?: number | null;
+  f_sales?: number | null;
+  f_op?: number | null;
+  sales_progress?: number | null;
+  op_progress?: number | null;
+}
+
+// バリュエーション文脈（V・機械算出＋セクター中央値比較）
+export interface ScreenValuation {
+  per?: number | null;
+  forward_per?: number | null;
+  pbr?: number | null;
+  roe_pct?: number | null;
+  opm_pct?: number | null;
+  fund_as_of?: string | null;
+  sector?: string | null;
+  sector_med_per?: number | null;
+  sector_med_pbr?: number | null;
+  sector_med_roe?: number | null;
+}
+
+// 直近ニュース1件（N・ヘッドレスagentがWebSearchで付与）
+export interface ScreenNewsItem {
+  date?: string | null;
+  title?: string;
+  takeaway?: string;
+  url?: string;
+  source?: string;
+}
+
 export interface ScreenEntry {
   id: string;
   input: string;
@@ -100,6 +138,9 @@ export interface ScreenEntry {
   trend?: ScreenTrend;
   growth?: ScreenGrowth;
   concentration?: ScreenConcentration;
+  earnings?: ScreenEarnings; // F: 決算ハイライト
+  valuation?: ScreenValuation; // V: バリュエーション文脈
+  news?: ScreenNewsItem[]; // N: 直近ニュース（詳細取得で付与）
   reasoning?: ScreenReasoning; // 機械結果の「なぜ」（決定論・両経路）
   source?: ScreenSource; // ヘッドレスagentがURL要約を付与
   verdict?: ScreenVerdict; // ヘッドレスagentが定性落選判定を付与

@@ -18,10 +18,32 @@ function fmtPct(v?: number | null): string {
   return `${v > 0 ? "+" : ""}${v}%`;
 }
 
-function ResultCard({ e, pendingVerdict }: { e: ScreenEntry; pendingVerdict: boolean }) {
+const oku = (v?: number | null) => (v === null || v === undefined ? "-" : `${(v / 1e8).toFixed(1)}億`);
+// セクター中央値より割安/割高か（PER・PBRは低いほど割安、ROEは高いほど良い）
+const cmpTone = (v?: number | null, med?: number | null, lowerBetter = true): string => {
+  if (v == null || med == null) return "text-slate-700";
+  const cheap = lowerBetter ? v < med : v > med;
+  return cheap ? "text-emerald-700" : "text-rose-600";
+};
+
+function ResultCard({
+  e,
+  pendingVerdict,
+  onEnrich,
+  enriching,
+}: {
+  e: ScreenEntry;
+  pendingVerdict: boolean;
+  onEnrich?: (id: string) => void;
+  enriching?: boolean;
+}) {
   const t = e.trend;
   const g = e.growth;
   const c = e.concentration;
+  const v = e.valuation;
+  const ea = e.earnings;
+  const news = e.news;
+  const canEnrich = e.status === "done" && !!e.code && !e.verdict && (!news || news.length === 0);
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -96,6 +118,66 @@ function ResultCard({ e, pendingVerdict }: { e: ScreenEntry; pendingVerdict: boo
           </div>
         )}
       </div>
+
+      {/* V: バリュエーション文脈（セクター中央値比較） */}
+      {v && (
+        <div className="rounded border border-slate-100 px-3 py-2 text-xs">
+          <div className="text-slate-400 mb-1">バリュエーション{v.sector ? `（${v.sector}）` : ""}</div>
+          <div className="grid grid-cols-3 gap-x-3 gap-y-0.5">
+            <div>PER <span className={`font-mono ${cmpTone(v.per ?? v.forward_per, v.sector_med_per)}`}>{v.per ?? v.forward_per ?? "-"}</span></div>
+            <div>PBR <span className={`font-mono ${cmpTone(v.pbr, v.sector_med_pbr)}`}>{v.pbr ?? "-"}</span></div>
+            <div>ROE <span className={`font-mono ${cmpTone(v.roe_pct, v.sector_med_roe, false)}`}>{v.roe_pct != null ? `${v.roe_pct}%` : "-"}</span></div>
+            <div className="text-slate-400">中央{v.sector_med_per ?? "-"}</div>
+            <div className="text-slate-400">中央{v.sector_med_pbr ?? "-"}</div>
+            <div className="text-slate-400">中央{v.sector_med_roe != null ? `${v.sector_med_roe}%` : "-"}</div>
+          </div>
+        </div>
+      )}
+
+      {/* F: 直近決算ハイライト */}
+      {ea && (
+        <div className="rounded border border-slate-100 px-3 py-2 text-xs">
+          <div className="text-slate-400 mb-1">
+            直近決算ハイライト（{ea.period ?? "-"}{ea.disclosed ? ` ・${ea.disclosed}開示` : ""}）
+          </div>
+          <div className="text-slate-700">
+            売上 {oku(ea.sales)}（YoY {fmtPct(ea.sales_yoy)}）／ 営業益 {oku(ea.op)}（YoY {fmtPct(ea.op_yoy)}）
+          </div>
+          <div className="text-slate-500 mt-0.5">
+            通期会社予想 売上{oku(ea.f_sales)}・営業益{oku(ea.f_op)} → 進捗 売上{ea.sales_progress ?? "-"}%・営業益{ea.op_progress ?? "-"}%
+          </div>
+        </div>
+      )}
+
+      {/* N: 直近ニュース（詳細取得で付与） */}
+      {news && news.length > 0 && (
+        <div className="rounded border border-slate-100 px-3 py-2 text-xs space-y-1.5">
+          <div className="text-slate-400">直近ニュース</div>
+          {news.map((n, i) => (
+            <div key={i} className="text-slate-700">
+              {n.date && <span className="text-slate-400">{n.date} </span>}
+              {n.url ? (
+                <a href={n.url} target="_blank" rel="noreferrer" className="text-blue-600 underline">{n.title ?? "(記事)"}</a>
+              ) : (
+                <span className="font-medium">{n.title}</span>
+              )}
+              {n.source && <span className="text-slate-400"> [{n.source}]</span>}
+              {n.takeaway && <div className="text-slate-500 mt-0.5">{n.takeaway}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 詳細取得（オンデマンドで直近ニュース＋定性判定を付与） */}
+      {canEnrich && onEnrich && (
+        <button
+          onClick={() => onEnrich(e.id)}
+          disabled={enriching}
+          className="rounded border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+        >
+          {enriching ? "ニュース＋定性を取得中…（最大1〜2分）" : "🔎 詳細取得（直近ニュース＋定性判定）"}
+        </button>
+      )}
 
       {/* なぜこの結果か（決定論的な機械の理由・両経路） */}
       {e.reasoning && (e.reasoning.trend || e.reasoning.growth || e.reasoning.concentration) && (
@@ -229,6 +311,31 @@ export default function StockScreener({
     }
   }, [input, note, submitting, activeJob]);
 
+  // 詳細取得: 既存ジョブにニュース＋定性をオンデマンド付与（agent経路で同じポーリングに乗せる）
+  const enrich = useCallback(
+    async (entryId: string) => {
+      if (submitting || activeJob) return;
+      setError(null);
+      setTimedOut(false);
+      try {
+        const r = await fetch("/api/screen", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enrich: entryId }),
+        });
+        const d = await r.json();
+        if (!r.ok) {
+          setError(d.error ?? "詳細取得の起動に失敗しました");
+          return;
+        }
+        setActiveJob({ id: d.jobId, mode: d.mode });
+      } catch {
+        setError("通信エラー");
+      }
+    },
+    [submitting, activeJob],
+  );
+
   // 発掘タブからコードを受け取ったら自動でスクリーニング（ハック→精査の動線）
   useEffect(() => {
     if (!autoCode) return;
@@ -295,6 +402,8 @@ export default function StockScreener({
         <ResultCard
           e={activeEntry}
           pendingVerdict={!!activeJob && activeJob.mode === "agent" && !activeEntry.verdict}
+          onEnrich={enrich}
+          enriching={activeJob?.id === activeEntry.id}
         />
       )}
 
@@ -302,7 +411,13 @@ export default function StockScreener({
         <div className="space-y-3">
           <h3 className="text-sm font-semibold text-slate-600">これまでのスクリーニング</h3>
           {history.map((e) => (
-            <ResultCard key={e.id} e={e} pendingVerdict={false} />
+            <ResultCard
+              key={e.id}
+              e={e}
+              pendingVerdict={false}
+              onEnrich={enrich}
+              enriching={activeJob?.id === e.id}
+            />
           ))}
         </div>
       )}
