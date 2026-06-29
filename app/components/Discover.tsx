@@ -48,14 +48,14 @@ export default function Discover({ onScreen }: { onScreen?: (code: string) => vo
   const [data, setData] = useState<DiscoverResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // フィルタ / しきい値（下流で即反映）
+  // フィルタ / しきい値（下流で即反映）。初期値は「🎯狙い目」適用済み状態（成長×設定あり×割安）。
   const [q, setQ] = useState("");
-  const [market, setMarket] = useState<string>("グロース");
+  const [market, setMarket] = useState<string>("");
   const [sector, setSector] = useState<string>("");
   const [minRev, setMinRev] = useState(10); // 増収率 % 下限
-  const [maxPer, setMaxPer] = useState(40); // PER 上限
-  const [passOnly, setPassOnly] = useState(false);
-  const [setupOnly, setSetupOnly] = useState(false); // エントリー設定あり（signals由来）
+  const [maxPer, setMaxPer] = useState(20); // PER 上限
+  const [passOnly, setPassOnly] = useState(true);
+  const [setupOnly, setSetupOnly] = useState(true); // エントリー設定あり（signals由来）
   const [sort, setSort] = useState<SortKey>("growth_score");
   const [selected, setSelected] = useState<string | null>(null);
 
