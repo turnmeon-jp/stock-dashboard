@@ -7,11 +7,17 @@ import Portfolio from "./Portfolio";
 import ChartGrid from "./ChartGrid";
 import PaperTrade from "./PaperTrade";
 import SystemGuide from "./SystemGuide";
+import ExitMonitor from "./ExitMonitor";
+import StockScreener from "./StockScreener";
+import Discover from "./Discover";
 
-type Tab = "candidates" | "charts" | "portfolio" | "paper" | "guide";
+type Tab = "candidates" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "guide";
 
 const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "candidates", label: "今日の候補" },
+  { key: "discover",   label: "発掘" },
+  { key: "exit",       label: "出口監視" },
+  { key: "screen",     label: "気になる銘柄" },
   { key: "charts",     label: "チャート一覧" },
   { key: "portfolio",  label: "ポートフォリオ" },
   { key: "paper",      label: "ペーパートレード" },
@@ -91,6 +97,21 @@ export default function DashboardTabs({
           <p className="mt-3 text-xs text-slate-400">
             緑背景（上位5件）が集中対象。タップで注文プラン表示。詳細ボタンでチャートを確認。
           </p>
+        </div>
+      )}
+      {mounted.has("discover") && (
+        <div style={{ display: tab === "discover" ? "block" : "none" }}>
+          <Discover />
+        </div>
+      )}
+      {mounted.has("exit") && (
+        <div style={{ display: tab === "exit" ? "block" : "none" }}>
+          <ExitMonitor />
+        </div>
+      )}
+      {mounted.has("screen") && (
+        <div style={{ display: tab === "screen" ? "block" : "none" }}>
+          <StockScreener />
         </div>
       )}
       {mounted.has("charts") && (
