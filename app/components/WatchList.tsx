@@ -1,0 +1,209 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import type { WatchlistResponse, WatchItem } from "@/app/lib/watchlist";
+
+const short = (code: string) => code.replace(/0$/, "");
+const yen = (v: number | null | undefined) =>
+  v == null ? "-" : Math.round(v).toLocaleString("ja-JP");
+
+// ステータス→色。買い場=緑、押し目待ち=青、過熱=橙、見送り=灰
+function statusTone(s: string): string {
+  if (s === "買い場") return "bg-emerald-100 text-emerald-800 border-emerald-300";
+  if (s === "押し目待ち") return "bg-blue-50 text-blue-700 border-blue-200";
+  if (s === "過熱") return "bg-amber-100 text-amber-800 border-amber-300";
+  if (s === "見送り") return "bg-slate-100 text-slate-500 border-slate-200";
+  return "bg-slate-50 text-slate-600 border-slate-200";
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[10px] text-slate-400">{label}</span>
+      <span className={`text-sm font-medium tabular-nums ${tone ?? "text-slate-700"}`}>{value}</span>
+    </div>
+  );
+}
+
+function Card({ s }: { s: WatchItem }) {
+  const o = s.order;
+  const dist = s.dist_to_entry_pct;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      {/* ヘッダ: コード・銘柄・ステータス */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-slate-800">{s.name}</span>
+            <span className="text-xs text-slate-400">{short(s.code)}</span>
+            {s.is_quiet && (
+              <span className="rounded bg-violet-50 px-1 text-[10px] text-violet-600" title="放置タグ（静か）">静</span>
+            )}
+          </div>
+          <div className="text-[11px] text-slate-400">{s.sector}</div>
+        </div>
+        <div className="text-right">
+          <span className={`inline-block rounded border px-2 py-0.5 text-xs font-semibold ${statusTone(s.status)}`}>
+            {s.status}
+          </span>
+          <div className="mt-0.5 text-[10px] text-slate-400">{s.status_detail}</div>
+        </div>
+      </div>
+
+      {/* 品質×成長（なぜウォッチか） */}
+      <div className="mt-2 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
+        <Metric label="道B ROIC" value={s.roic_median != null ? `${s.roic_median}%` : "-"} />
+        <Metric label="売上CAGR" value={s.sales_cagr != null ? `${s.sales_cagr}%` : "-"} />
+        <Metric label="PER" value={s.per != null ? `${s.per}倍` : "-"} />
+        <Metric
+          label="CFO/OP"
+          value={s.cfo_op != null ? `${s.cfo_op}` : "-"}
+          tone={s.cfo_op != null && s.cfo_op < 0.7 ? "text-amber-600" : undefined}
+        />
+      </div>
+
+      {/* エントリータイミング */}
+      <div className="mt-2 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
+        <Metric label="現値" value={yen(s.close)} />
+        <Metric label="SMA25(買場)" value={yen(s.sma25)} />
+        <Metric
+          label="押し目余地"
+          value={dist != null ? `${dist > 0 ? "+" : ""}${dist}%` : "-"}
+          tone={dist != null && dist <= 1 ? "text-emerald-600" : "text-slate-700"}
+        />
+        <Metric label="RSI" value={`${s.rsi14}`} />
+      </div>
+
+      {/* IFDOCO 注文設計 */}
+      <div className="mt-2 rounded bg-slate-50 p-2">
+        <div className="mb-1 text-[10px] font-semibold text-slate-500">注文設計（IFDOCO）</div>
+        {o ? (
+          <div className="grid grid-cols-3 gap-2">
+            <Metric label="IFD 買い指値" value={yen(o.ifd_entry)} tone="text-blue-700" />
+            <Metric label="OCO 損切" value={yen(o.oco_stop)} tone="text-red-600" />
+            <Metric label="OCO 利確" value={yen(o.oco_tp_first)} tone="text-emerald-700" />
+          </div>
+        ) : (
+          <div className="text-xs text-slate-400">注文なし</div>
+        )}
+        {o && (
+          <div className="mt-1 text-[11px] text-slate-500">
+            {o.shares != null ? (
+              <>
+                {o.shares.toLocaleString()}株 / 投資 ¥{yen(o.invested)} / リスク ¥{yen(o.risk_yen)}
+                {o.effective_r_pct != null && `（R=${o.effective_r_pct}%）`}
+              </>
+            ) : (
+              <span className="text-amber-600">{o.size_note ?? "サイズ不能"}</span>
+            )}
+          </div>
+        )}
+        {o && <div className="mt-0.5 text-[10px] text-slate-400">{o.trail_note}</div>}
+      </div>
+
+      <div className="mt-2 text-right">
+        <Link href={`/stock/${s.code}`} className="text-xs text-blue-600 hover:underline">
+          チャート →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+export default function WatchList() {
+  const [data, setData] = useState<WatchlistResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/watchlist")
+      .then((r) => r.json())
+      .then((d: WatchlistResponse) => setData(d))
+      .catch(() => setData({ ok: false, message: "取得に失敗しました。", generated_at: null, as_of: null, regime: null, n: 0, items: [] }))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <p className="text-sm text-slate-400">読み込み中…</p>;
+  if (!data) return <p className="text-sm text-red-500">データがありません。</p>;
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+        <span>ウォッチ {data.n}銘柄</span>
+        {data.as_of && <span>· {data.as_of} 時点</span>}
+        {data.regime && (
+          <span
+            className={`rounded px-2 py-0.5 font-medium ${
+              data.regime.label === "risk_on"
+                ? "bg-emerald-100 text-emerald-700"
+                : data.regime.label === "risk_off"
+                ? "bg-red-100 text-red-700"
+                : "bg-amber-100 text-amber-700"
+            }`}
+            title="市場レジーム（min(大型breadth, グロースbreadth)）"
+          >
+            レジーム: {data.regime.label}
+          </span>
+        )}
+      </div>
+
+      {/* 抽出条件のわかりやすい説明（折りたたみ） */}
+      <details className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+        <summary className="cursor-pointer font-medium text-slate-700">
+          📋 これらの銘柄はどう選ばれている？（抽出条件）
+        </summary>
+        <div className="mt-2 space-y-2 text-slate-600">
+          <p className="text-slate-500">
+            「<b>得意分野の・小型で・伸びていて・資本効率が高く・財務と会計が健全</b>な会社」を機械で絞った<b>保有候補</b>。
+            下の6つの関門を<b>すべて</b>通った銘柄だけを表示しています。
+          </p>
+          <ol className="ml-4 list-decimal space-y-1">
+            <li><b>土俵（得意分野）</b>：機械・電気機器・精密機器・金属製品（FA／センサ／製造業まわり）</li>
+            <li><b>小型で発掘</b>：時価総額 30〜500億円。大型は既に知られているので外す</li>
+            <li><b>成長</b>：売上が年 +6% 以上で伸び続け、直近も失速していない（あなたの決定軸）</li>
+            <li>
+              <b>資本効率（道B ROIC ≥ 12%）</b>：借金＋自己資本−現金＝「実際に使っている元手」に対する利益。
+              EDINET の有報から有利子負債を取り、買掛金など“借りていない負債”を分母から外して製造業も正しく評価。
+              直近と過去中央値の両方が 12% 以上（改善中の会社は拾い、単年だけの跳ねは除外）
+            </li>
+            <li><b>財務の堅さ</b>：自己資本比率 ≥ 50% ／ 営業利益率 ≥ 15%</li>
+            <li>
+              <b>会計の正直さ</b>：営業利益がちゃんと現金になっている（営業CF ÷ 営業利益 ≥ 0.6）。
+              見せかけ利益・特需ピークの罠を排除
+            </li>
+          </ol>
+          <p>
+            <span className="rounded bg-violet-50 px-1 text-[11px] text-violet-600">静</span>{" "}
+            タグ＝回転率が低い（＝市場に見られていない）目印。ボーナス表示で、絞り込みには使いません。
+          </p>
+          <p className="text-slate-500">
+            <b>エントリー・注文（各カード）</b>：買い場＝25日移動平均（SMA25）への押し目。トレンド（SMA25＞SMA75）と RSI で
+            「買い場／押し目待ち／過熱／見送り」を判定。注文は <b>IFD 買い指値（SMA25）＋ OCO 損切・利確（1.5R）</b>、
+            1トレードの損失が資金の約1%になる株数。
+          </p>
+          <p className="rounded bg-amber-50 px-2 py-1 text-[13px] text-amber-800">
+            ⚠️ これは「買い<b>候補</b>」であって「買い<b>推奨</b>」ではありません。数字が良くても事業が罠のことがあります
+            （例：数字最良のダイコク電機はパチンコ関連の衰退産業なので除外対象）。<b>最終判断は各社の事業・循環性・割高感を自分で精査してから。</b>
+          </p>
+        </div>
+      </details>
+
+      {data.message && (
+        <p className="mb-3 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+          {data.message}
+        </p>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {data.items.map((s) => (
+          <Card key={s.code} s={s} />
+        ))}
+      </div>
+
+      <p className="mt-3 text-xs text-slate-400">
+        道B品質×成長で厳選した保有候補。ステータス＝エントリータイミング（買い場/押し目待ち/過熱/見送り）。
+        注文は IFD 買い指値＋OCO 損切逆指値/利確。最終判断は各社の事業精査後に。
+      </p>
+    </div>
+  );
+}

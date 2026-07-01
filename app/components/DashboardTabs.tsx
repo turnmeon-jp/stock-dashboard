@@ -10,11 +10,13 @@ import SystemGuide from "./SystemGuide";
 import ExitMonitor from "./ExitMonitor";
 import StockScreener from "./StockScreener";
 import Discover from "./Discover";
+import WatchList from "./WatchList";
 
-type Tab = "candidates" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "guide";
+type Tab = "candidates" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "guide";
 
 const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "candidates", label: "今日の候補" },
+  { key: "watch",      label: "ウォッチ" },
   { key: "discover",   label: "発掘" },
   { key: "exit",       label: "出口監視" },
   { key: "screen",     label: "気になる銘柄" },
@@ -104,6 +106,11 @@ export default function DashboardTabs({
           <p className="mt-3 text-xs text-slate-400">
             緑背景（上位5件）が集中対象。タップで注文プラン表示。詳細ボタンでチャートを確認。
           </p>
+        </div>
+      )}
+      {mounted.has("watch") && (
+        <div style={{ display: tab === "watch" ? "block" : "none" }}>
+          <WatchList />
         </div>
       )}
       {mounted.has("discover") && (
