@@ -45,6 +45,18 @@ export interface WatchItem {
   order: WatchOrder | null;
   atr14: number;
   turnover_oku: number | null;
+  // 由来: "manual" = watchlist_codes.json 経由の手動追加 / "domain_screen" = 自動通過
+  source?: "manual" | "domain_screen" | null;
+  // 合流バッジ（P4）: pipeline/watchlist.py 生成時に domain_screen / scored_universe.json と join。
+  // 旧データ（再生成前）には無いことがあるため optional。
+  is_domain?: boolean | null;
+  edge_aligned?: boolean | null;
+  growth_pass?: boolean | null;
+  // 信用残の需給タグ（pipeline/margin_tags.py が付与。参考情報＝機械フィルタではない）
+  margin_ratio?: number | null;
+  long_per_adv?: number | null;
+  short_zero?: boolean | null;
+  margin_as_of?: string | null;
 }
 
 export interface Regime {

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { ScreenEntry, ScreenStore } from "@/app/lib/types";
+import { fetchDossierList, type DossierSummary } from "@/app/lib/dossier";
+import DossierPanel from "./DossierPanel";
 
 const short = (code?: string | null) => (code ? code.replace(/0$/, "") : "");
 
@@ -31,11 +33,21 @@ function ResultCard({
   pendingVerdict,
   onEnrich,
   enriching,
+  watched,
+  onWatchAdd,
+  addingWatch,
+  dossier,
+  dossierListReady,
 }: {
   e: ScreenEntry;
   pendingVerdict: boolean;
   onEnrich?: (id: string) => void;
   enriching?: boolean;
+  watched?: boolean;
+  onWatchAdd?: (code: string) => void;
+  addingWatch?: boolean;
+  dossier?: DossierSummary;
+  dossierListReady?: boolean;
 }) {
   const t = e.trend;
   const g = e.growth;
@@ -52,7 +64,22 @@ function ResultCard({
           <span className="font-semibold text-slate-800">{e.name ?? e.input}</span>
           {e.theme && <span className="ml-2 text-xs text-blue-500">{e.theme}</span>}
         </div>
-        <span className="text-[11px] text-slate-400">{e.screened_at}</span>
+        <div className="flex items-center gap-2">
+          {e.status === "done" && e.code && onWatchAdd && (
+            watched ? (
+              <span className="text-[11px] font-medium text-emerald-600">✓ ウォッチ追加済み</span>
+            ) : (
+              <button
+                onClick={() => onWatchAdd(e.code!)}
+                disabled={addingWatch}
+                className="rounded border border-emerald-300 px-2 py-1 text-[11px] font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                {addingWatch ? "追加中…" : "☆ ウォッチに追加"}
+              </button>
+            )
+          )}
+          <span className="text-[11px] text-slate-400">{e.screened_at}</span>
+        </div>
       </div>
 
       {e.status === "processing" && !e.trend && (
@@ -223,6 +250,10 @@ function ResultCard({
           <p className="text-xs text-slate-400">定性判定を生成中…（URLの読解に最大1〜2分）</p>
         )
       )}
+
+      {e.status === "done" && e.code && (
+        <DossierPanel code={e.code} initial={dossier} listReady={dossierListReady} />
+      )}
     </div>
   );
 }
@@ -241,6 +272,10 @@ export default function StockScreener({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timedOut, setTimedOut] = useState(false);
+  const [watchedCodes, setWatchedCodes] = useState<Set<string>>(new Set());
+  const [addingWatchCode, setAddingWatchCode] = useState<string | null>(null);
+  const [dossierMap, setDossierMap] = useState<Map<string, DossierSummary>>(new Map());
+  const [dossierListReady, setDossierListReady] = useState(false);
 
   // 初回: 履歴ロード
   useEffect(() => {
@@ -248,6 +283,42 @@ export default function StockScreener({
       .then((r) => r.json())
       .then((s: ScreenStore) => setStore(s))
       .catch(() => {});
+  }, []);
+
+  // 初回: 既存ウォッチ銘柄（追加済み判定用）
+  useEffect(() => {
+    fetch("/api/watchlist", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { items?: { code: string }[] }) => setWatchedCodes(new Set((d.items ?? []).map((x) => x.code))))
+      .catch(() => {});
+  }, []);
+
+  // 初回: ドシエ一覧（存在確認・verdictバッジ用）は一度だけ取得
+  useEffect(() => {
+    fetchDossierList()
+      .then((list) => setDossierMap(new Map(list.map((d) => [d.code, d]))))
+      .finally(() => setDossierListReady(true));
+  }, []);
+
+  const addToWatch = useCallback(async (code: string) => {
+    setAddingWatchCode(code);
+    try {
+      const r = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, action: "add" }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setError(d.error ?? "ウォッチ追加に失敗しました");
+        return;
+      }
+      setWatchedCodes((prev) => new Set(prev).add(code));
+    } catch {
+      setError("通信エラー");
+    } finally {
+      setAddingWatchCode(null);
+    }
   }, []);
 
   // ポーリング（送信中のジョブが確定するまで）
@@ -404,6 +475,11 @@ export default function StockScreener({
           pendingVerdict={!!activeJob && activeJob.mode === "agent" && !activeEntry.verdict}
           onEnrich={enrich}
           enriching={activeJob?.id === activeEntry.id}
+          watched={!!activeEntry.code && watchedCodes.has(activeEntry.code)}
+          onWatchAdd={addToWatch}
+          addingWatch={!!activeEntry.code && addingWatchCode === activeEntry.code}
+          dossier={activeEntry.code ? dossierMap.get(activeEntry.code) : undefined}
+          dossierListReady={dossierListReady}
         />
       )}
 
@@ -417,6 +493,11 @@ export default function StockScreener({
               pendingVerdict={false}
               onEnrich={enrich}
               enriching={activeJob?.id === e.id}
+              watched={!!e.code && watchedCodes.has(e.code)}
+              onWatchAdd={addToWatch}
+              addingWatch={!!e.code && addingWatchCode === e.code}
+              dossier={e.code ? dossierMap.get(e.code) : undefined}
+              dossierListReady={dossierListReady}
             />
           ))}
         </div>

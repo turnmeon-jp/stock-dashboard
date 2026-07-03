@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { DiscoverResponse, DiscoverStock } from "@/app/lib/discover";
 import { fmtNum, fmtPct } from "@/app/lib/format";
+import { fetchDossierList, dossierWarningBadge, type DossierSummary } from "@/app/lib/dossier";
+import { fetchLvhAlerts, lvhBadge, groupLvhAlertsByCode, type LvhAlert } from "@/app/lib/lvh";
+import { ConfluenceBadges, confluenceCount } from "./ConfluenceBadge";
 
 // 末尾0を除いた東証4桁表示
 const short = (code: string) => code.replace(/0$/, "");
@@ -35,13 +38,36 @@ const effPer = (s: DiscoverStock): number | null =>
 const setupLabel = (t: string | null): string =>
   t === "pullback" ? "押し目" : t === "breakout" ? "ブレイク" : t ?? "-";
 
-type SortKey = "growth_score" | "rev_yoy" | "per" | "roe_pct" | "volume_ratio";
+// 変化トリガー（P3/L2）バッジ: 会社予想の上方修正 or 四半期加速。
+// 断面スクリーンでは見えない「昨日と今日の違い」への注意喚起であり、売買シグナルではない。
+const CHANGE_TOOLTIP = "注意喚起であり売買シグナルではありません（裁量の精査対象選定の材料）。";
+function changeBadge(s: DiscoverStock): { label: string; tone: string; title: string } | null {
+  if (s.revision_pct != null && s.revision_pct > 0) {
+    return {
+      label: `📈+${fmtPct(s.revision_pct * 100)}`,
+      tone: "bg-orange-100 text-orange-700",
+      title: `会社予想を上方修正（${s.revision_date ?? "-"}）。${CHANGE_TOOLTIP}`,
+    };
+  }
+  if (s.rev_accel != null && s.rev_accel > 0 && s.eps_accel != null && s.eps_accel > 0) {
+    return {
+      label: "⚡加速",
+      tone: "bg-sky-100 text-sky-700",
+      title: `売上・EPSの四半期成長が加速。${CHANGE_TOOLTIP}`,
+    };
+  }
+  return null;
+}
+
+type SortKey = "growth_score" | "rev_yoy" | "per" | "roe_pct" | "volume_ratio" | "change" | "confluence";
 const SORTS: { key: SortKey; label: string; asc?: boolean }[] = [
   { key: "growth_score", label: "成長スコア" },
   { key: "rev_yoy", label: "増収率" },
   { key: "per", label: "割安(PER昇順)", asc: true },
   { key: "roe_pct", label: "ROE" },
   { key: "volume_ratio", label: "出来高急増" },
+  { key: "change", label: "変化順" },
+  { key: "confluence", label: "合流数" },
 ];
 
 export default function Discover({ onScreen }: { onScreen?: (code: string) => void }) {
@@ -74,6 +100,53 @@ export default function Discover({ onScreen }: { onScreen?: (code: string) => vo
       .finally(() => setLoading(false));
   }, []);
 
+  // 既存ウォッチ銘柄（「ウォッチに追加」の追加済み判定用）
+  const [watchedCodes, setWatchedCodes] = useState<Set<string>>(new Set());
+  const [addingWatchCode, setAddingWatchCode] = useState<string | null>(null);
+  const [watchError, setWatchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/watchlist", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { items?: { code: string }[] }) => setWatchedCodes(new Set((d.items ?? []).map((x) => x.code))))
+      .catch(() => {});
+  }, []);
+
+  // ドシエ落選反映（P5）: 一覧を一度だけ取得しMap化（3756行の発掘全件と違い軽量）。
+  const [dossierMap, setDossierMap] = useState<Map<string, DossierSummary>>(new Map());
+  useEffect(() => {
+    fetchDossierList().then((list) => setDossierMap(new Map(list.map((d) => [d.code, d]))));
+  }, []);
+
+  // アクティビスト新規大量保有報告（注意喚起タグ・売買シグナルではない）: 一覧を一度だけ取得。
+  const [lvhAlerts, setLvhAlerts] = useState<LvhAlert[]>([]);
+  useEffect(() => {
+    fetchLvhAlerts().then((d) => setLvhAlerts(d.alerts));
+  }, []);
+  const lvhMap = useMemo(() => groupLvhAlertsByCode(lvhAlerts), [lvhAlerts]);
+
+  const addToWatch = useCallback(async (code: string) => {
+    setAddingWatchCode(code);
+    setWatchError(null);
+    try {
+      const r = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, action: "add" }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setWatchError(d.error ?? "ウォッチ追加に失敗しました");
+        return;
+      }
+      setWatchedCodes((prev) => new Set(prev).add(code));
+    } catch {
+      setWatchError("通信エラー");
+    } finally {
+      setAddingWatchCode(null);
+    }
+  }, []);
+
   const sectors = useMemo(() => {
     if (!data) return [];
     return [...new Set(data.stocks.map((s) => s.sector).filter(Boolean))].sort();
@@ -98,6 +171,24 @@ export default function Discover({ onScreen }: { onScreen?: (code: string) => vo
   }, [data, q, market, sector, passOnly, setupOnly, minRev, maxPer]);
 
   const ranked = useMemo(() => {
+    if (sort === "change") {
+      // 変化順: revision_date 新しい順 → revision_pct 大きい順（未検出は末尾）
+      return [...filtered].sort((a, b) => {
+        const da = a.revision_date ?? "";
+        const db = b.revision_date ?? "";
+        if (da !== db) return da > db ? -1 : 1;
+        return (b.revision_pct ?? -Infinity) - (a.revision_pct ?? -Infinity);
+      });
+    }
+    if (sort === "confluence") {
+      // 合流数（0〜3）降順。同数は成長スコア降順で補助整列（新しい合成スコアは作らない=既存指標の再利用）。
+      return [...filtered].sort((a, b) => {
+        const ca = confluenceCount(a.edge_aligned, a.growth_pass, a.is_domain);
+        const cb = confluenceCount(b.edge_aligned, b.growth_pass, b.is_domain);
+        if (ca !== cb) return cb - ca;
+        return (b.growth_score ?? -Infinity) - (a.growth_score ?? -Infinity);
+      });
+    }
     const asc = SORTS.find((x) => x.key === sort)?.asc ?? false;
     const val = (s: DiscoverStock) => {
       const v = sort === "per" ? effPer(s) : (s[sort] as number | null);
@@ -129,6 +220,9 @@ export default function Discover({ onScreen }: { onScreen?: (code: string) => vo
         「狙い目」で<b className="text-emerald-700">成長×設定あり×割安</b>に一発で絞れます。割安/局面/成長ラベルは下のしきい値で即変わります。
       </p>
 
+      {/* アクティビスト新規5%（注意喚起・売買シグナルではない） */}
+      <ActivistAlertsSection alerts={lvhAlerts} />
+
       {/* コントロール */}
       <Controls
         {...{ q, setQ, market, setMarket, sector, setSector, sectors, minRev, setMinRev, maxPer, setMaxPer, passOnly, setPassOnly, setupOnly, setSetupOnly, sort, setSort }}
@@ -143,10 +237,22 @@ export default function Discover({ onScreen }: { onScreen?: (code: string) => vo
       </div>
 
       {/* レーダー詳細（選択時） */}
-      {sel && <RadarDetail s={sel} onClose={() => setSelected(null)} onScreen={onScreen} />}
+      {sel && (
+        <RadarDetail
+          s={sel}
+          onClose={() => setSelected(null)}
+          onScreen={onScreen}
+          watched={watchedCodes.has(sel.code)}
+          onWatchAdd={addToWatch}
+          addingWatch={addingWatchCode === sel.code}
+          watchError={watchError}
+          dossierVerdict={dossierMap.get(sel.code)?.verdict_call ?? null}
+          lvhAlerts={lvhMap.get(sel.code)}
+        />
+      )}
 
       {/* ランキング表 */}
-      <RankingTable ranked={ranked} selected={selected} onSelect={setSelected} onScreen={onScreen} />
+      <RankingTable ranked={ranked} selected={selected} onSelect={setSelected} onScreen={onScreen} dossierMap={dossierMap} lvhMap={lvhMap} />
     </div>
   );
 }
@@ -318,7 +424,17 @@ function SectorHeatmap(p: { stocks: DiscoverStock[]; active: string; onPick: (s:
 
 /* ------------------------------------------------------------------ */
 // 5軸レーダー: 成長 / 増収 / ROE / 利益率 / 割安。
-function RadarDetail(p: { s: DiscoverStock; onClose: () => void; onScreen?: (code: string) => void }) {
+function RadarDetail(p: {
+  s: DiscoverStock;
+  onClose: () => void;
+  onScreen?: (code: string) => void;
+  watched?: boolean;
+  onWatchAdd?: (code: string) => void;
+  addingWatch?: boolean;
+  watchError?: string | null;
+  dossierVerdict?: string | null;
+  lvhAlerts?: LvhAlert[] | null;
+}) {
   const s = p.s;
   const per = effPer(s);
   const axes = [
@@ -339,6 +455,23 @@ function RadarDetail(p: { s: DiscoverStock; onClose: () => void; onScreen?: (cod
         <div className="text-sm font-semibold text-slate-800">
           <span className="font-mono text-slate-500">{short(s.code)}</span> {s.name}
           <span className="ml-2 text-xs font-normal text-slate-500">{s.market} / {s.sector}</span>
+          <ConfluenceBadges edgeAligned={s.edge_aligned} growthPass={s.growth_pass} isDomain={s.is_domain} className="ml-2 align-middle" />
+          {(() => {
+            const w = dossierWarningBadge(p.dossierVerdict);
+            return w ? (
+              <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help align-middle ${w.tone}`}>
+                {w.label}
+              </span>
+            ) : null;
+          })()}
+          {(() => {
+            const w = lvhBadge(p.lvhAlerts);
+            return w ? (
+              <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help align-middle ${w.tone}`}>
+                {w.label}
+              </span>
+            ) : null;
+          })()}
         </div>
         <button onClick={p.onClose} className="text-xs text-slate-400 hover:text-slate-600">✕ 閉じる</button>
       </div>
@@ -369,6 +502,14 @@ function RadarDetail(p: { s: DiscoverStock; onClose: () => void; onScreen?: (cod
           <div><span className="text-slate-400">PBR</span> <span className="font-mono text-slate-800">{s.pbr != null ? fmtNum(s.pbr, 2) : "-"}</span></div>
           <div><span className="text-slate-400">RSI</span> <span className="font-mono text-slate-800">{s.rsi != null ? fmtNum(s.rsi) : "-"}</span></div>
           <div><span className="text-slate-400">局面</span> <span className="font-mono text-slate-800">{techPhase(s) ?? "-"}</span></div>
+          {/* 変化トリガー（P3/L2）: 生指標をそのまま表示。エッジ主張はせず注意喚起のみ */}
+          <div className="col-span-2 sm:col-span-3 text-[11px] text-slate-500" title={CHANGE_TOOLTIP}>
+            <span className="text-slate-400">変化</span>{" "}
+            増収加速 <span className="font-mono text-slate-700">{s.rev_accel != null ? fmtPct(s.rev_accel * 100) : "-"}</span>
+            {" / "}EPS加速 <span className="font-mono text-slate-700">{s.eps_accel != null ? fmtPct(s.eps_accel * 100) : "-"}</span>
+            {" / "}予想改定 <span className="font-mono text-slate-700">{s.revision_pct != null ? fmtPct(s.revision_pct * 100) : "-"}</span>
+            {s.revision_date ? ` (${s.revision_date})` : ""}
+          </div>
           {/* エントリー設定（signals.json 由来のヒント） */}
           <div className="col-span-2 sm:col-span-3 mt-1 rounded bg-slate-50 px-3 py-2 text-xs">
             {s.setup_type ? (
@@ -396,6 +537,20 @@ function RadarDetail(p: { s: DiscoverStock; onClose: () => void; onScreen?: (cod
             <Link href={`/stock/${s.code}`} className="inline-block rounded border border-blue-300 px-3 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">
               詳細チャート →
             </Link>
+            {p.onWatchAdd && (
+              p.watched ? (
+                <span className="text-xs font-medium text-emerald-600">✓ ウォッチ追加済み</span>
+              ) : (
+                <button
+                  onClick={() => p.onWatchAdd!(s.code)}
+                  disabled={p.addingWatch}
+                  className="inline-block rounded border border-emerald-300 px-3 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                >
+                  {p.addingWatch ? "追加中…" : "☆ ウォッチに追加"}
+                </button>
+              )
+            )}
+            {p.watchError && <span className="text-xs text-rose-600">{p.watchError}</span>}
             <span className="text-[10px] text-slate-400">財務基準日 {s.fund_as_of ?? "-"} / 次回決算目安 {s.next_disclosure_est ?? "-"}</span>
           </div>
         </div>
@@ -405,7 +560,14 @@ function RadarDetail(p: { s: DiscoverStock; onClose: () => void; onScreen?: (cod
 }
 
 /* ------------------------------------------------------------------ */
-function RankingTable(p: { ranked: DiscoverStock[]; selected: string | null; onSelect: (c: string) => void; onScreen?: (code: string) => void }) {
+function RankingTable(p: {
+  ranked: DiscoverStock[];
+  selected: string | null;
+  onSelect: (c: string) => void;
+  onScreen?: (code: string) => void;
+  dossierMap: Map<string, DossierSummary>;
+  lvhMap: Map<string, LvhAlert[]>;
+}) {
   const cols = ["銘柄", "市場", "セクター", "局面", "設定", "成長", "増収率", "PER", "PBR", "ROE", "出来高", "トリガー", "損切り", "精査"];
   const TOP = 200; // 表示上限（描画負荷対策）
   const rows = p.ranked.slice(0, TOP);
@@ -432,7 +594,34 @@ function RankingTable(p: { ranked: DiscoverStock[]; selected: string | null; onS
                   <td className="px-2.5 py-1.5 whitespace-nowrap">
                     <span className="font-mono text-slate-500">{short(s.code)}</span>{" "}
                     <span className="font-medium">{s.name}</span>
-                    {s.growth_pass && <span className="ml-1 text-[10px] text-emerald-600">✓</span>}
+                    <ConfluenceBadges edgeAligned={s.edge_aligned} growthPass={s.growth_pass} isDomain={s.is_domain} className="ml-1.5" />
+                    {(() => {
+                      const cb = changeBadge(s);
+                      return cb ? (
+                        <span
+                          title={cb.title}
+                          className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium cursor-help ${cb.tone}`}
+                        >
+                          {cb.label}
+                        </span>
+                      ) : null;
+                    })()}
+                    {(() => {
+                      const w = dossierWarningBadge(p.dossierMap.get(s.code)?.verdict_call);
+                      return w ? (
+                        <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}>
+                          {w.label}
+                        </span>
+                      ) : null;
+                    })()}
+                    {(() => {
+                      const w = lvhBadge(p.lvhMap.get(s.code));
+                      return w ? (
+                        <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}>
+                          {w.label}
+                        </span>
+                      ) : null;
+                    })()}
                   </td>
                   <td className="px-2.5 py-1.5 whitespace-nowrap text-xs text-slate-500">{s.market}</td>
                   <td className="px-2.5 py-1.5 whitespace-nowrap text-xs text-slate-500 max-w-[8rem] truncate">{s.sector}</td>
@@ -476,5 +665,54 @@ function RankingTable(p: { ranked: DiscoverStock[]; selected: string | null; onS
         <p className="mt-2 text-xs text-slate-400">上位{TOP}件を表示（全{p.ranked.length}件）。フィルタで絞り込んでください。</p>
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+// アクティビスト新規5%（直近60日・EDINET）: 折りたたみの注意喚起一覧。
+// イベントスタディ+60営業日勝率55.6%（辛勝）を確認済みだが、対照群（運用会社等）は逆効果のため
+// 機械トリガーにはしない。ここは一覧表示のみ（ドシエの自動生成はしない）。
+function ActivistAlertsSection({ alerts }: { alerts: LvhAlert[] }) {
+  return (
+    <details className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-sm">
+      <summary className="cursor-pointer font-medium text-fuchsia-800">
+        🎯 アクティビスト新規5%（直近60日・{alerts.length}件）
+      </summary>
+      <div className="mt-2">
+        <p className="mb-2 text-xs text-slate-500">
+          既知アクティビストの新規大量保有報告（EDINET）。イベントスタディで+60営業日勝率55.6%
+          （辛勝・対照群の運用会社等は逆に全ホライズンでマイナス）を確認済みですが、
+          <b className="text-slate-600">売買シグナルではなく注意喚起の一覧</b>です。最終判断は個別精査で。
+        </p>
+        {alerts.length === 0 ? (
+          <p className="text-xs text-slate-400">直近なし</p>
+        ) : (
+          <div className="overflow-x-auto rounded border border-fuchsia-100 bg-white">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-fuchsia-50 text-left text-slate-600">
+                  <th className="px-2 py-1.5 font-medium">日付</th>
+                  <th className="px-2 py-1.5 font-medium">銘柄</th>
+                  <th className="px-2 py-1.5 font-medium">提出者</th>
+                </tr>
+              </thead>
+              <tbody>
+                {alerts.map((a) => (
+                  <tr key={a.docID} className="border-t border-fuchsia-50">
+                    <td className="whitespace-nowrap px-2 py-1.5 text-slate-500">{a.date}</td>
+                    <td className="whitespace-nowrap px-2 py-1.5">
+                      <Link href={`/stock/${a.code}`} className="text-blue-700 hover:underline">
+                        {short(a.code)} {a.name ?? "-"}
+                      </Link>
+                    </td>
+                    <td className="px-2 py-1.5 text-slate-600">{a.filer}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </details>
   );
 }

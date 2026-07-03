@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { WatchlistResponse, WatchItem } from "@/app/lib/watchlist";
+import { fetchDossierList, type DossierSummary } from "@/app/lib/dossier";
+import { fetchDilutionFlags, dilutionBadge, type DilutionFlag } from "@/app/lib/dilution";
+import { fetchLvhAlerts, lvhBadge, groupLvhAlertsByCode, type LvhAlert } from "@/app/lib/lvh";
+import { marginBadge } from "@/app/lib/margin";
+import DossierPanel from "./DossierPanel";
+import { ConfluenceBadges } from "./ConfluenceBadge";
 
 const short = (code: string) => code.replace(/0$/, "");
 const yen = (v: number | null | undefined) =>
@@ -26,9 +32,56 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: s
   );
 }
 
-function Card({ s }: { s: WatchItem }) {
+function DilutionWarning({ flags }: { flags?: DilutionFlag[] | null }) {
+  const w = dilutionBadge(flags);
+  if (!w) return null;
+  return (
+    <span title={w.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${w.tone}`}>
+      {w.label}
+    </span>
+  );
+}
+
+function LvhWarning({ alerts }: { alerts?: LvhAlert[] | null }) {
+  const w = lvhBadge(alerts);
+  if (!w) return null;
+  return (
+    <span title={w.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${w.tone}`}>
+      {w.label}
+    </span>
+  );
+}
+
+function MarginBadge({ s }: { s: WatchItem }) {
+  const b = marginBadge(s);
+  if (!b) return null;
+  return (
+    <span title={b.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${b.tone}`}>
+      {b.label}
+    </span>
+  );
+}
+
+function Card({
+  s,
+  onRemove,
+  removing,
+  dossier,
+  dossierListReady,
+  dilutionFlags,
+  lvhAlerts,
+}: {
+  s: WatchItem;
+  onRemove: (s: WatchItem) => void;
+  removing: boolean;
+  dossier?: DossierSummary;
+  dossierListReady?: boolean;
+  dilutionFlags?: DilutionFlag[] | null;
+  lvhAlerts?: LvhAlert[] | null;
+}) {
   const o = s.order;
   const dist = s.dist_to_entry_pct;
+  const isManual = s.source === "manual";
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
       {/* ヘッダ: コード・銘柄・ステータス */}
@@ -37,9 +90,16 @@ function Card({ s }: { s: WatchItem }) {
           <div className="flex items-center gap-2">
             <span className="font-semibold text-slate-800">{s.name}</span>
             <span className="text-xs text-slate-400">{short(s.code)}</span>
+            {isManual && (
+              <span className="rounded bg-blue-50 px-1 text-[10px] text-blue-600" title="手動で追加した銘柄">手動</span>
+            )}
             {s.is_quiet && (
               <span className="rounded bg-violet-50 px-1 text-[10px] text-violet-600" title="放置タグ（静か）">静</span>
             )}
+            <DilutionWarning flags={dilutionFlags} />
+            <LvhWarning alerts={lvhAlerts} />
+            <MarginBadge s={s} />
+            <ConfluenceBadges edgeAligned={s.edge_aligned} growthPass={s.growth_pass} isDomain={s.is_domain} />
           </div>
           <div className="text-[11px] text-slate-400">{s.sector}</div>
         </div>
@@ -102,11 +162,24 @@ function Card({ s }: { s: WatchItem }) {
         {o && <div className="mt-0.5 text-[10px] text-slate-400">{o.trail_note}</div>}
       </div>
 
-      <div className="mt-2 text-right">
+      <div className="mt-2 flex items-center justify-end gap-3">
+        {isManual && (
+          <button
+            onClick={() => {
+              if (confirm(`${s.name}（${short(s.code)}）を手動ウォッチから削除しますか？`)) onRemove(s);
+            }}
+            disabled={removing}
+            className="text-xs text-rose-500 hover:underline disabled:opacity-50"
+          >
+            {removing ? "削除中…" : "削除"}
+          </button>
+        )}
         <Link href={`/stock/${s.code}`} className="text-xs text-blue-600 hover:underline">
           チャート →
         </Link>
       </div>
+
+      <DossierPanel code={s.code} initial={dossier} listReady={dossierListReady} />
     </div>
   );
 }
@@ -114,6 +187,12 @@ function Card({ s }: { s: WatchItem }) {
 export default function WatchList() {
   const [data, setData] = useState<WatchlistResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [removingCode, setRemovingCode] = useState<string | null>(null);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [dossierMap, setDossierMap] = useState<Map<string, DossierSummary>>(new Map());
+  const [dossierListReady, setDossierListReady] = useState(false);
+  const [dilutionMap, setDilutionMap] = useState<Record<string, DilutionFlag[]>>({});
+  const [lvhMap, setLvhMap] = useState<Map<string, LvhAlert[]>>(new Map());
 
   useEffect(() => {
     fetch("/api/watchlist")
@@ -121,6 +200,47 @@ export default function WatchList() {
       .then((d: WatchlistResponse) => setData(d))
       .catch(() => setData({ ok: false, message: "取得に失敗しました。", generated_at: null, as_of: null, regime: null, n: 0, items: [] }))
       .finally(() => setLoading(false));
+  }, []);
+
+  // ドシエ一覧（存在確認・verdictバッジ用）は一度だけ取得し、カード毎の個別fetchを避ける
+  useEffect(() => {
+    fetchDossierList()
+      .then((list) => setDossierMap(new Map(list.map((d) => [d.code, d]))))
+      .finally(() => setDossierListReady(true));
+  }, []);
+
+  // 増資/希薄化の機械検知（EDINET・過検出側の一次候補バッジ）: 一覧を一度だけ取得。
+  useEffect(() => {
+    fetchDilutionFlags().then(setDilutionMap);
+  }, []);
+
+  // アクティビスト大量保有報告（注意喚起タグ・売買シグナルではない）: 一覧を一度だけ取得。
+  useEffect(() => {
+    fetchLvhAlerts().then((d) => setLvhMap(groupLvhAlertsByCode(d.alerts)));
+  }, []);
+
+  const handleRemove = useCallback(async (s: WatchItem) => {
+    setRemovingCode(s.code);
+    setRemoveError(null);
+    try {
+      const r = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: s.code, action: "remove" }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setRemoveError(d.error ?? "削除に失敗しました");
+        return;
+      }
+      setData((prev) =>
+        prev ? { ...prev, items: prev.items.filter((it) => it.code !== s.code), n: Math.max(0, prev.n - 1) } : prev
+      );
+    } catch {
+      setRemoveError("通信エラー");
+    } finally {
+      setRemovingCode(null);
+    }
   }, []);
 
   if (loading) return <p className="text-sm text-slate-400">読み込み中…</p>;
@@ -193,10 +313,24 @@ export default function WatchList() {
           {data.message}
         </p>
       )}
+      {removeError && (
+        <p className="mb-3 rounded bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">
+          {removeError}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {data.items.map((s) => (
-          <Card key={s.code} s={s} />
+          <Card
+            key={s.code}
+            s={s}
+            onRemove={handleRemove}
+            removing={removingCode === s.code}
+            dossier={dossierMap.get(s.code)}
+            dossierListReady={dossierListReady}
+            dilutionFlags={dilutionMap[s.code]}
+            lvhAlerts={lvhMap.get(s.code)}
+          />
         ))}
       </div>
 

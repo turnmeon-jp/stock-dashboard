@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { PaperPositionsData, PaperLogEntry, Candidate } from "@/app/lib/types";
+import type { PaperPositionsData, PaperLogEntry, Candidate, LedgerReport } from "@/app/lib/types";
 import { fmtInt, fmtPct, fmtYen } from "@/app/lib/format";
 
 const INITIAL_CAPITAL = 3_000_000;
@@ -15,6 +15,14 @@ const LOG_TYPE_LABELS: Record<string, string> = {
   stop_loss: "損切",
   trail_exit: "トレール",
   time_exit: "時間切れ",
+};
+
+// 候補台帳（candidate_ledger）の系統キー → 表示名
+const LEDGER_SYSTEM_LABELS: Record<string, string> = {
+  edge_aligned: "今日の候補（edge_aligned）",
+  growth_pass: "成長通過（Layer2）",
+  domain_screen: "土俵（domain_screen）",
+  watchlist: "ウォッチ",
 };
 
 function daysSince(dateStr: string): number {
@@ -58,6 +66,7 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
   const [posData, setPosData] = useState<PaperPositionsData | null>(null);
   const [log, setLog] = useState<PaperLogEntry[]>([]);
   const [sectorConc, setSectorConc] = useState<SectorConcentration | null>(null);
+  const [ledger, setLedger] = useState<LedgerReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<PaperLogEntry | null>(null);
 
@@ -72,11 +81,15 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
         return r.json() as Promise<PaperLogEntry[]>;
       }),
       fetch("/api/paper/postmortem").then((r) => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/ledger")
+        .then((r) => (r.ok ? (r.json() as Promise<LedgerReport | null>) : null))
+        .catch(() => null),
     ])
-      .then(([pos, lg, pm]) => {
+      .then(([pos, lg, pm, led]) => {
         setPosData(pos);
         setLog(Array.isArray(lg) ? lg : []);
         setSectorConc(pm?.sector_concentration ?? null);
+        setLedger(led ?? null);
       })
       .catch((err) => {
         console.error("ペーパートレードデータの取得に失敗:", err);
@@ -769,6 +782,75 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* 候補スクリーン成績（candidate_ledger のフォワード検証。系統×ホライズンの超過リターン） */}
+      <div>
+        <h3 className="font-semibold text-slate-700 mb-2">候補スクリーン成績（フォワード検証）</h3>
+        {!ledger || !ledger.has_data ? (
+          <p className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-400 shadow-sm">
+            蓄積中（2週間程度で初回レポート）
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 text-left">
+                  <th className="px-3 py-2 font-medium whitespace-nowrap">系統</th>
+                  {ledger.horizons.map((h) => (
+                    <th key={h} className="px-3 py-2 font-medium text-right whitespace-nowrap">
+                      {h}営業日
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(ledger.systems).map(([sys, buckets]) => (
+                  <tr key={sys} className="border-t border-slate-100">
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {LEDGER_SYSTEM_LABELS[sys] ?? sys}
+                    </td>
+                    {ledger.horizons.map((h) => {
+                      const b = buckets[String(h)];
+                      if (!b || b.n === 0) {
+                        return (
+                          <td key={h} className="px-3 py-2 text-right text-slate-300">
+                            -
+                          </td>
+                        );
+                      }
+                      const medPct = (b.median_excess ?? 0) * 100;
+                      return (
+                        <td key={h} className="px-3 py-2 text-right font-mono whitespace-nowrap">
+                          <span
+                            className={
+                              medPct > 0
+                                ? "text-emerald-600"
+                                : medPct < 0
+                                  ? "text-rose-600"
+                                  : "text-slate-600"
+                            }
+                          >
+                            {medPct >= 0 ? "+" : ""}
+                            {fmtPct(medPct)}
+                          </span>
+                          <span className="ml-1 text-slate-400">
+                            (勝率{b.win_rate != null ? Math.round(b.win_rate * 100) : "-"}% n=
+                            {b.n})
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="px-3 py-2 text-[10px] text-slate-400">
+              値=超過リターン中央値（対ユニバース中央値）。勝率=超過&gt;0の割合。
+              起点はスナップショット翌営業日の調整後終値（AdjC）。
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

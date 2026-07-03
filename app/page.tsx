@@ -29,7 +29,7 @@ export default async function Home() {
         <div className="mx-auto max-w-7xl px-2 py-3 sm:px-4 sm:py-4">
           <div className="flex flex-wrap items-baseline justify-between gap-1 sm:gap-2">
             <h1 className="text-base font-bold text-slate-800 sm:text-xl">株式運用ダッシュボード</h1>
-            <p className="text-xs text-slate-400">5銘柄集中・手動執行</p>
+            <p className="text-xs text-slate-400">裁量エントリー × 機械的出口規律</p>
           </div>
           <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
             <span>生成: <span className="text-slate-700">{fmtDateTime(data.generated_at)}</span></span>

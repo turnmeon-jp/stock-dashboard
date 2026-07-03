@@ -96,74 +96,49 @@ export default function ExitMonitor() {
               </tr>
             </thead>
             <tbody>
-              {data.holdings.map((h) => (
-                <tr key={h.code} className="border-t border-slate-100">
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <span className="font-mono text-slate-500">{short(h.code)}</span>{" "}
-                    <span className="font-medium">{h.name}</span>
-                    {h.theme === "AI" && <span className="ml-1 text-[10px] text-blue-500">AI</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono">{h.cost}</td>
-                  <td className="px-3 py-2 text-right font-mono">{h.cur ?? "-"}</td>
-                  <td
-                    className={`px-3 py-2 text-right font-mono ${
-                      (h.pl_pct ?? 0) > 0
-                        ? "text-emerald-600"
-                        : (h.pl_pct ?? 0) < 0
-                          ? "text-rose-600"
-                          : ""
-                    }`}
-                  >
-                    {h.pl_pct !== undefined ? `${h.pl_pct > 0 ? "+" : ""}${h.pl_pct}%` : "-"}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono text-rose-600">
-                    {h.stop_level ?? "-"}
-                  </td>
-                  <td className={`px-3 py-2 text-xs ${actionTone(h.action ?? "")}`}>
-                    {h.action ?? h.error ?? "-"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ウォッチリスト */}
-      <div>
-        <h3 className="font-semibold text-slate-700 mb-2 text-sm">ウォッチリスト</h3>
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-100 text-slate-600 text-left">
-                {["銘柄", "現値", "乖離", "RSI", "判定"].map((h, i) => (
-                  <th key={i} className="px-3 py-2 font-medium whitespace-nowrap">
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.watchlist.map((w) => (
-                <tr key={w.code} className="border-t border-slate-100">
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <span className="font-mono text-slate-500">{short(w.code)}</span>{" "}
-                    <span className="font-medium">{w.name}</span>
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono">{w.cur ?? "-"}</td>
-                  <td className="px-3 py-2 text-right font-mono">
-                    {w.dist_pct !== undefined ? `${w.dist_pct > 0 ? "+" : ""}${w.dist_pct}%` : "-"}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono">{w.rsi ?? "-"}</td>
-                  <td
-                    className={`px-3 py-2 text-xs ${
-                      (w.status ?? "").includes("✅") ? "text-emerald-700" : "text-slate-500"
-                    }`}
-                  >
-                    {w.status ?? w.error ?? "-"}
-                  </td>
-                </tr>
-              ))}
+              {data.holdings.flatMap((h) => {
+                const rows = [
+                  <tr key={h.code} className="border-t border-slate-100">
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className="font-mono text-slate-500">{short(h.code)}</span>{" "}
+                      <span className="font-medium">{h.name}</span>
+                      {h.theme === "AI" && <span className="ml-1 text-[10px] text-blue-500">AI</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">{h.cost}</td>
+                    <td className="px-3 py-2 text-right font-mono">{h.cur ?? "-"}</td>
+                    <td
+                      className={`px-3 py-2 text-right font-mono ${
+                        (h.pl_pct ?? 0) > 0
+                          ? "text-emerald-600"
+                          : (h.pl_pct ?? 0) < 0
+                            ? "text-rose-600"
+                            : ""
+                      }`}
+                    >
+                      {h.pl_pct !== undefined ? `${h.pl_pct > 0 ? "+" : ""}${h.pl_pct}%` : "-"}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono text-rose-600">
+                      {h.stop_level ?? "-"}
+                    </td>
+                    <td className={`px-3 py-2 text-xs ${actionTone(h.action ?? "")}`}>
+                      {h.action ?? h.error ?? "-"}
+                    </td>
+                  </tr>,
+                ];
+                // 買い増し（利乗せ限定）: eligible の時だけ行を追加。非成立時は画面を汚さない。
+                if (h.add_on?.eligible) {
+                  const a = h.add_on;
+                  rows.push(
+                    <tr key={`${h.code}-addon`} className="border-t border-slate-100 bg-sky-50">
+                      <td colSpan={6} className="px-3 py-1.5 text-xs text-sky-700">
+                        🔼買い増し: 指値~{a.limit}(SMA25)・+{a.add_shares}株・混合建値{a.blended_cost}
+                        ・逆指値{a.stop}維持（フリーロール条件成立）
+                      </td>
+                    </tr>
+                  );
+                }
+                return rows;
+              })}
             </tbody>
           </table>
         </div>

@@ -1,10 +1,63 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Candidate } from "@/app/lib/types";
 import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
 import { setupLabel, TOP_N } from "@/app/lib/constants";
+import { fetchDossierList, dossierWarningBadge, type DossierSummary } from "@/app/lib/dossier";
+import { fetchDilutionFlags, dilutionBadge, type DilutionFlag } from "@/app/lib/dilution";
+import { fetchLvhAlerts, lvhBadge, groupLvhAlertsByCode, type LvhAlert } from "@/app/lib/lvh";
+import { marginBadge } from "@/app/lib/margin";
+
+// 精査/ウォッチ追加ボタン共通 props（Discover.tsx / StockScreener.tsx と同じフローを移植）
+type ActionProps = {
+  onScreen?: (code: string) => void;
+  watched?: boolean;
+  onWatchAdd?: (code: string) => void;
+  addingWatch?: boolean;
+  watchErrorMsg?: string | null;
+};
+
+function DossierWarning({ call }: { call?: string | null }) {
+  const w = dossierWarningBadge(call);
+  if (!w) return null;
+  return (
+    <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}>
+      {w.label}
+    </span>
+  );
+}
+
+function DilutionWarning({ flags }: { flags?: DilutionFlag[] | null }) {
+  const w = dilutionBadge(flags);
+  if (!w) return null;
+  return (
+    <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}>
+      {w.label}
+    </span>
+  );
+}
+
+function LvhWarning({ alerts }: { alerts?: LvhAlert[] | null }) {
+  const w = lvhBadge(alerts);
+  if (!w) return null;
+  return (
+    <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}>
+      {w.label}
+    </span>
+  );
+}
+
+function MarginBadge({ c }: { c: Candidate }) {
+  const b = marginBadge(c);
+  if (!b) return null;
+  return (
+    <span title={b.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${b.tone}`}>
+      {b.label}
+    </span>
+  );
+}
 
 function OrderPlan({ c }: { c: Candidate }) {
   return (
@@ -61,13 +114,24 @@ function CandidateCard({
   rank,
   isOpen,
   onToggle,
+  dossierCall,
+  dilutionFlags,
+  lvhAlerts,
+  onScreen,
+  watched,
+  onWatchAdd,
+  addingWatch,
+  watchErrorMsg,
 }: {
   c: Candidate;
   isTop: boolean;
   rank: number;
   isOpen: boolean;
   onToggle: () => void;
-}) {
+  dossierCall?: string | null;
+  dilutionFlags?: DilutionFlag[] | null;
+  lvhAlerts?: LvhAlert[] | null;
+} & ActionProps) {
   const dimmed = !c.edge_aligned;
   return (
     <div
@@ -93,6 +157,10 @@ function CandidateCard({
         <div className="min-w-0 flex-1">
           <span className="font-mono text-xs text-slate-500">{c.code}</span>{" "}
           <span className="font-medium text-sm text-slate-800">{c.name}</span>
+          <DossierWarning call={dossierCall} />
+          <DilutionWarning flags={dilutionFlags} />
+          <LvhWarning alerts={lvhAlerts} />
+          <MarginBadge c={c} />
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="inline-block rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
@@ -149,8 +217,34 @@ function CandidateCard({
       {/* 注文プランアコーディオン */}
       {isOpen && <OrderPlan c={c} />}
 
-      {/* 詳細ボタン */}
-      <div className="px-3 pb-3 pt-1">
+      {/* 精査・ウォッチ・詳細ボタン */}
+      <div className="px-3 pb-3 pt-1 space-y-1.5">
+        <div className="flex gap-1.5">
+          {onScreen && (
+            <button
+              onClick={() => onScreen(c.code)}
+              className="flex-1 rounded border border-blue-200 py-1.5 text-center text-xs font-medium text-blue-700 hover:bg-blue-100"
+            >
+              精査
+            </button>
+          )}
+          {onWatchAdd && (
+            watched ? (
+              <span className="flex-1 flex items-center justify-center rounded border border-emerald-200 py-1.5 text-xs font-medium text-emerald-600">
+                ✓ 追加済み
+              </span>
+            ) : (
+              <button
+                onClick={() => onWatchAdd(c.code)}
+                disabled={addingWatch}
+                className="flex-1 rounded border border-emerald-300 py-1.5 text-center text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                {addingWatch ? "追加中…" : "☆ ウォッチに追加"}
+              </button>
+            )
+          )}
+        </div>
+        {watchErrorMsg && <p className="text-[10px] text-rose-600">{watchErrorMsg}</p>}
         <Link
           href={`/stock/${c.code}`}
           className="block w-full rounded border border-blue-300 py-1.5 text-center text-xs font-medium text-blue-700 hover:bg-blue-50"
@@ -162,9 +256,67 @@ function CandidateCard({
   );
 }
 
-export default function CandidatesTable({ candidates }: { candidates: Candidate[] }) {
+export default function CandidatesTable({
+  candidates,
+  onScreen,
+}: {
+  candidates: Candidate[];
+  onScreen?: (code: string) => void;
+}) {
   const [openCode, setOpenCode] = useState<string | null>(null);
   const [edgeOnly, setEdgeOnly] = useState(true);
+
+  // ドシエ落選反映（P5）: 一覧を一度だけ取得しMap化。
+  const [dossierMap, setDossierMap] = useState<Map<string, DossierSummary>>(new Map());
+  useEffect(() => {
+    fetchDossierList().then((list) => setDossierMap(new Map(list.map((d) => [d.code, d]))));
+  }, []);
+
+  // 増資/希薄化の機械検知（EDINET・過検出側の一次候補バッジ）: 一覧を一度だけ取得。
+  const [dilutionMap, setDilutionMap] = useState<Record<string, DilutionFlag[]>>({});
+  useEffect(() => {
+    fetchDilutionFlags().then(setDilutionMap);
+  }, []);
+
+  // アクティビスト大量保有報告（注意喚起タグ・売買シグナルではない）: 一覧を一度だけ取得。
+  const [lvhMap, setLvhMap] = useState<Map<string, LvhAlert[]>>(new Map());
+  useEffect(() => {
+    fetchLvhAlerts().then((d) => setLvhMap(groupLvhAlertsByCode(d.alerts)));
+  }, []);
+
+  // 既存ウォッチ銘柄（Discover.tsx / StockScreener.tsx と同じ「追加済み」判定フロー）
+  const [watchedCodes, setWatchedCodes] = useState<Set<string>>(new Set());
+  const [addingWatchCode, setAddingWatchCode] = useState<string | null>(null);
+  const [watchError, setWatchError] = useState<{ code: string; message: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/watchlist", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { items?: { code: string }[] }) => setWatchedCodes(new Set((d.items ?? []).map((x) => x.code))))
+      .catch(() => {});
+  }, []);
+
+  const addToWatch = useCallback(async (code: string) => {
+    setAddingWatchCode(code);
+    setWatchError(null);
+    try {
+      const r = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, action: "add" }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setWatchError({ code, message: d.error ?? "ウォッチ追加に失敗しました" });
+        return;
+      }
+      setWatchedCodes((prev) => new Set(prev).add(code));
+    } catch {
+      setWatchError({ code, message: "通信エラー" });
+    } finally {
+      setAddingWatchCode(null);
+    }
+  }, []);
 
   const visible = edgeOnly ? candidates.filter((c) => c.edge_aligned) : candidates;
 
@@ -189,7 +341,6 @@ export default function CandidatesTable({ candidates }: { candidates: Candidate[
     "売買代金(億)",
     "適合",
     "執行可能日",
-    "",
   ];
 
   return (
@@ -231,6 +382,14 @@ export default function CandidatesTable({ candidates }: { candidates: Candidate[
                   rank={rank}
                   isOpen={isOpen}
                   onToggle={() => setOpenCode(isOpen ? null : c.code)}
+                  dossierCall={dossierMap.get(c.code)?.verdict_call}
+                  dilutionFlags={dilutionMap[c.code]}
+                  lvhAlerts={lvhMap.get(c.code)}
+                  onScreen={onScreen}
+                  watched={watchedCodes.has(c.code)}
+                  onWatchAdd={addToWatch}
+                  addingWatch={addingWatchCode === c.code}
+                  watchErrorMsg={watchError?.code === c.code ? watchError.message : null}
                 />
               );
             })}
@@ -262,6 +421,14 @@ export default function CandidatesTable({ candidates }: { candidates: Candidate[
                       colSpan={cols.length}
                       rank={rank}
                       onToggle={() => setOpenCode(isOpen ? null : c.code)}
+                      dossierCall={dossierMap.get(c.code)?.verdict_call}
+                      dilutionFlags={dilutionMap[c.code]}
+                      lvhAlerts={lvhMap.get(c.code)}
+                      onScreen={onScreen}
+                      watched={watchedCodes.has(c.code)}
+                      onWatchAdd={addToWatch}
+                      addingWatch={addingWatchCode === c.code}
+                      watchErrorMsg={watchError?.code === c.code ? watchError.message : null}
                     />
                   );
                 })}
@@ -281,6 +448,14 @@ function FragmentRow({
   colSpan,
   rank,
   onToggle,
+  dossierCall,
+  dilutionFlags,
+  lvhAlerts,
+  onScreen,
+  watched,
+  onWatchAdd,
+  addingWatch,
+  watchErrorMsg,
 }: {
   c: Candidate;
   isTop: boolean;
@@ -288,7 +463,10 @@ function FragmentRow({
   colSpan: number;
   rank: number;
   onToggle: () => void;
-}) {
+  dossierCall?: string | null;
+  dilutionFlags?: DilutionFlag[] | null;
+  lvhAlerts?: LvhAlert[] | null;
+} & ActionProps) {
   const dimmed = !c.edge_aligned;
   return (
     <>
@@ -307,7 +485,41 @@ function FragmentRow({
             )}
             <span className="font-mono text-slate-500">{c.code}</span>
             <span className={dimmed ? "" : "font-medium"}>{c.name}</span>
+            <DossierWarning call={dossierCall} />
+            <DilutionWarning flags={dilutionFlags} />
+            <LvhWarning alerts={lvhAlerts} />
+            <MarginBadge c={c} />
+            {onScreen && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onScreen(c.code); }}
+                className="rounded border border-blue-200 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+              >
+                精査
+              </button>
+            )}
+            {onWatchAdd && (
+              watched ? (
+                <span title="ウォッチ追加済み" className="px-1 text-xs font-medium text-emerald-600">✓</span>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onWatchAdd(c.code); }}
+                  disabled={addingWatch}
+                  title="ウォッチに追加"
+                  className="rounded border border-emerald-300 px-1.5 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                >
+                  {addingWatch ? "…" : "☆"}
+                </button>
+              )
+            )}
+            <Link
+              href={`/stock/${c.code}`}
+              onClick={(e) => e.stopPropagation()}
+              className="rounded border border-blue-200 px-1.5 py-0.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+            >
+              詳細
+            </Link>
           </div>
+          {watchErrorMsg && <p className="mt-1 text-[10px] text-rose-600">{watchErrorMsg}</p>}
         </td>
         <td className="px-3 py-2 whitespace-nowrap">{c.market}</td>
         <td className="px-3 py-2 whitespace-nowrap">{c.sector}</td>
@@ -339,15 +551,6 @@ function FragmentRow({
           )}
         </td>
         <td className="px-3 py-2 whitespace-nowrap">{c.available_at ?? "-"}</td>
-        <td className="px-3 py-2 whitespace-nowrap text-center">
-          <Link
-            href={`/stock/${c.code}`}
-            onClick={(e) => e.stopPropagation()}
-            className="rounded border border-blue-200 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-          >
-            詳細
-          </Link>
-        </td>
       </tr>
       {isOpen && (
         <tr>

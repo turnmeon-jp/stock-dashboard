@@ -16,13 +16,13 @@ type Tab = "candidates" | "watch" | "discover" | "exit" | "screen" | "charts" | 
 
 const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "candidates", label: "今日の候補" },
-  { key: "watch",      label: "ウォッチ" },
   { key: "discover",   label: "発掘" },
-  { key: "exit",       label: "出口監視" },
   { key: "screen",     label: "気になる銘柄" },
+  { key: "watch",      label: "ウォッチ" },
+  { key: "exit",       label: "出口監視" },
   { key: "charts",     label: "チャート一覧" },
-  { key: "portfolio",  label: "ポートフォリオ" },
   { key: "paper",      label: "ペーパートレード" },
+  { key: "portfolio",  label: "ポートフォリオ" },
   { key: "guide",      label: "解説" },
 ];
 
@@ -102,7 +102,7 @@ export default function DashboardTabs({
               {message}
             </p>
           )}
-          <CandidatesTable candidates={candidates} />
+          <CandidatesTable candidates={candidates} onScreen={requestScreen} />
           <p className="mt-3 text-xs text-slate-400">
             緑背景（上位5件）が集中対象。タップで注文プラン表示。詳細ボタンでチャートを確認。
           </p>

@@ -247,6 +247,78 @@ export default function SystemGuide() {
         </p>
       </section>
 
+      {/* ---- ウォッチ登録 ---- */}
+      <section className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+        <h2 className="mb-2 text-base font-bold text-teal-900">ウォッチ登録</h2>
+        <p className="text-slate-700 leading-relaxed">
+          「発掘」「気になる銘柄」タブの銘柄カードにある<span className="font-semibold">「ウォッチに追加」</span>ボタンから
+          登録すると、「ウォッチ」タブで継続監視できます。手動で追加した銘柄には
+          <span className="font-semibold">「手動」バッジ</span>が付き、いつでも削除できます。
+          登録銘柄の価格・シグナルは日次バッチで自動更新されます。
+        </p>
+      </section>
+
+      {/* ---- 信用残の需給タグ ---- */}
+      <section className="rounded-lg border border-cyan-200 bg-cyan-50 p-4">
+        <h2 className="mb-2 text-base font-bold text-cyan-900">
+          需給タグ（<span className="font-mono">需給◎</span> / <span className="font-mono">需給重</span>）
+        </h2>
+        <p className="text-slate-700 leading-relaxed">
+          候補・ウォッチの銘柄名の隣に付く信用残タグです。10年分の edge_aligned トレードを
+          <span className="font-semibold">信用倍率（買い残÷売り残）</span>と
+          <span className="font-semibold">買い残の対出来高比（買い残÷20日平均出来高）</span>で層別すると、
+          OOS期間で <span className="font-mono font-semibold">+0.33R / +0.40R</span> の差（銘柄ブロックブートストラップ
+          95%CI下限&gt;0）が確認できました。方向は「倍率が高い・買い残が厚いほど良い」で、
+          売り残がゼロ（非貸借銘柄）の群が最も成績が良く、本質は買い残の厚さそのものより
+          <span className="font-semibold">空売り圧力の不在</span>かもしれません。
+        </p>
+        <p className="mt-2 text-slate-700 leading-relaxed">
+          <span className="font-semibold">需給◎</span> = 信用倍率が高い（またはshort_zero=売り残ゼロ）、
+          <span className="font-semibold">需給重</span> = 信用倍率が低い（売り方比率が高め）。
+        </p>
+        <p className="mt-2 rounded bg-white border border-cyan-200 px-2 py-1 text-xs text-slate-600">
+          ⚠️ 検証結果は2025年のデータに偏って牽引されている点に留意が必要です。そのため
+          このタグは<span className="font-semibold">まだ機械的な絞り込み条件（フィルタ）にはしていません</span>。
+          あくまで参考情報として表示しつつ、候補フォワード検証台帳（candidate_ledger）で
+          継続的に成績を測定しています。
+        </p>
+      </section>
+
+      {/* ---- アクティビスト大量保有検知 ---- */}
+      <section className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 p-4">
+        <h2 className="mb-2 text-base font-bold text-fuchsia-900">
+          アクティビスト大量保有検知（<span className="font-mono">🎯大量保有</span>バッジ）
+        </h2>
+        <p className="text-slate-700 leading-relaxed">
+          既知アクティビスト（村上系・オアシス・エフィッシモ等）による新規5%大量保有報告（EDINET）を
+          日次で検知するタグです。イベントスタディで発行体株の+60営業日超過リターンが
+          <span className="font-semibold">中央値+2.69%・勝率55.6%</span>と事前固定の合格基準を満たしましたが、
+          2条件のうち勝率側のみでの<span className="font-semibold">辛勝</span>（CI下限はわずかにマイナス、
+          n=144と検出力も中程度）です。運用会社等・事業会社の大量保有報告は対照群として全ホライズンで
+          中央値マイナスと逆効果であり、<span className="font-semibold">提出者の選別が全て</span>です。
+        </p>
+        <p className="mt-2 rounded bg-white border border-fuchsia-200 px-2 py-1 text-xs text-slate-600">
+          ⚠️ そのため<span className="font-semibold">機械トリガー（自動売買判断）には使っていません</span>。
+          「発掘」タブ・候補/ウォッチの銘柄バッジは<span className="font-semibold">注意喚起</span>であり、
+          最終判断は個別精査で行ってください。TOB（公開買付）統制は未実装のため、買収プレミアムそのものを
+          捉えている可能性も残ります。検出後の値動きは候補フォワード検証台帳
+          （candidate_ledger system=lvh_activist）で継続測定しています。
+        </p>
+      </section>
+
+      {/* ---- 投資ドシエ ---- */}
+      <section className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+        <h2 className="mb-2 text-base font-bold text-indigo-900">投資ドシエ（深掘り調査）</h2>
+        <p className="text-slate-700 leading-relaxed">
+          「ウォッチ」「気になる銘柄」タブのカードから、Opus 4.8 がEDINET有価証券報告書とWeb一次情報を調査し
+          投資ドシエを生成します。判定は
+          <span className="font-semibold">「落選」「重大懸念」「懸念あり・監視」「落選事由なし」</span>
+          の4段階で、<span className="font-semibold">買い推奨ではなく落選材料の検出</span>が目的です。
+          銘柄選定は機械スクリーナ、エントリー/出口水準（ウォッチ・出口監視の計算値）は機械が担い、
+          LLMは判定に関与しません。日次バッチでウォッチ銘柄のうち未生成分を上限2件/日で自動生成します。
+        </p>
+      </section>
+
       {/* ---- 注意事項 ---- */}
       <p className="text-xs text-slate-400 leading-relaxed border-t border-slate-200 pt-4">
         本システムは個人の自己運用補助ツールです。過去のバックテスト結果は将来の利益を保証しません。

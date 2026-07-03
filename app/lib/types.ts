@@ -1,5 +1,16 @@
 // signals.json のスキーマ定義
 
+// exit_monitor.json の add_on（買い増し=利乗せ限定レコメンド）。含み損銘柄は構造的に
+// eligible にならない設計（ナンピン誘発の防止。pipeline/exit_monitor.py の analyze_holding 参照）。
+export interface ExitAddOn {
+  eligible: boolean;
+  add_shares: number;
+  limit: number | null;
+  blended_cost: number | null;
+  stop: number | null;
+  reason: string | null;
+}
+
 // exit_monitor.json のスキーマ（出口監視）
 export interface ExitHolding {
   code: string;
@@ -15,6 +26,7 @@ export interface ExitHolding {
   stop_level?: number;
   action?: string;
   error?: string;
+  add_on?: ExitAddOn;
 }
 
 export interface ExitWatch {
@@ -182,6 +194,11 @@ export interface Candidate {
   growth_score?: number | null;
   growth_rev_yoy?: number | null;
   next_disclosure_est?: string | null;
+  // 信用残の需給タグ（pipeline/margin_tags.py が付与。参考情報＝機械フィルタではない）
+  margin_ratio?: number | null;
+  long_per_adv?: number | null;
+  short_zero?: boolean | null;
+  margin_as_of?: string | null;
 }
 
 export type RegimeLabel = "risk_on" | "neutral" | "risk_off";
@@ -317,6 +334,23 @@ export interface PaperLogEntry {
   pnl?: number;
   reason?: string;
   exposure?: number; // レジーム別エクスポージャー係数（1.0 = risk_on）
+}
+
+// 候補フォワード検証台帳の系統別成績（output/ledger_report.json）
+export interface LedgerBucket {
+  n: number;
+  win_rate: number | null; // 超過リターン>0 の割合（0-1）
+  median_excess: number | null; // 超過リターン中央値（比率。+1.2% は 0.012）
+  mean_excess: number | null;
+  tail_mean_top10pct: number | null; // 上位10%の平均（尾部の厚さ）
+}
+
+export interface LedgerReport {
+  generated_at: string;
+  n_ledger_rows: number;
+  has_data: boolean; // false = まだ評価済み行なし（蓄積中）
+  horizons: number[];
+  systems: Record<string, Record<string, LedgerBucket>>; // systems[system][String(horizon)]
 }
 
 // ポートフォリオ建玉（localStorage に永続化）
