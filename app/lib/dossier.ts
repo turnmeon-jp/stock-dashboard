@@ -58,6 +58,16 @@ export interface DossierSourceRef {
   note?: string;
 }
 
+// テーゼ候補（下書き）。pipeline/dossier.py が付与する任意フィールドで、落選銘柄・旧ドシエには無い
+// （2026-07-04頃〜追加のため optional で後方互換）。あくまで下書きであり、採用・編集は人間が
+// pipeline/holdings_cli.py 経由で行う（買い推奨語彙は含まれない）。
+export interface DossierThesisDraft {
+  premise?: string;
+  falsifiers?: string[];
+  review_by_hint?: string;
+  basis?: string;
+}
+
 // GET /api/dossier/[code] のレスポンス（生成中でもそのまま返る＝ポーリング用）
 export interface DossierData {
   code: string;
@@ -75,6 +85,7 @@ export interface DossierData {
   verdict?: DossierVerdict;
   watch_points?: string[];
   sources?: DossierSourceRef[];
+  thesis_draft?: DossierThesisDraft | null;
 }
 
 // GET /api/dossier のレスポンス1件（一覧・存在確認/バッジ表示用の軽量版。name は現状常に null）

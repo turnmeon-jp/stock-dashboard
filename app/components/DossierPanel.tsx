@@ -6,12 +6,19 @@ import {
   requestDossier,
   type DossierData,
   type DossierSummary,
+  type DossierThesisDraft,
 } from "@/app/lib/dossier";
 
 // ポーリングは60秒間隔。生成は10分程度・20分超もありうるため15分でポーリングは打ち切るが
 // ファイルは永続化されているので再訪すれば完成品が見える（route.ts のコメント参照）。
 const POLL_INTERVAL_MS = 60_000;
 const POLL_MAX_MS = 15 * 60 * 1000;
+
+// J-Quants の5桁コード（末尾0付き）→ 表示・CLI引数用の4桁証券コード。
+// 他コンポーネント（WatchList/EntryFunnel/StockScreener）の short() と同一実装。
+const short = (code: string) => code.replace(/0$/, "");
+
+const REVIEW_BY_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function verdictTone(call?: string | null): string {
   switch (call) {
@@ -48,6 +55,54 @@ function SourceLink({ href, children }: { href: string; children: React.ReactNod
     >
       {children}
     </a>
+  );
+}
+
+// テーゼ候補（下書き）。あくまでLLMによる下書きであり、採用・編集は人間が holdings_cli 経由で
+// 行う運用のため、買い推奨を示唆する文言は出さない。null/キー自体なしなら呼び出し側で描画しない。
+function ThesisDraftSection({ code, draft }: { code: string; draft: DossierThesisDraft }) {
+  const [copied, setCopied] = useState(false);
+  const reviewBy = draft.review_by_hint && REVIEW_BY_DATE_RE.test(draft.review_by_hint) ? draft.review_by_hint : null;
+  const cmd =
+    `python -m pipeline.holdings_cli add ${short(code)} --shares <株数> --cost <取得単価> ` +
+    `--reason "<エントリー理由>" --from-dossier` +
+    (reviewBy ? ` --review-by ${reviewBy}` : "");
+
+  const copy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* クリップボードAPI不可の環境では無視（表示された文字列を手動選択すればコピー可能） */
+    }
+  }, [cmd]);
+
+  return (
+    <div className="rounded border border-indigo-200 bg-indigo-50/50 px-2 py-1.5 space-y-1.5">
+      <div className="font-semibold text-indigo-700">📝 テーゼ候補（下書き・採用は holdings_cli）</div>
+      {draft.premise && <p className="font-medium text-slate-700">{draft.premise}</p>}
+      {draft.falsifiers && draft.falsifiers.length > 0 && (
+        <ul className="ml-4 list-disc space-y-0.5 text-slate-600">
+          {draft.falsifiers.map((f, i) => (
+            <li key={i}>{f}</li>
+          ))}
+        </ul>
+      )}
+      {draft.review_by_hint && <div className="text-slate-500">確認期日候補: {draft.review_by_hint}</div>}
+      {draft.basis && <p className="text-[11px] text-slate-400">{draft.basis}</p>}
+      <div className="space-y-1 pt-0.5">
+        <code className="block whitespace-pre-wrap break-all rounded border border-slate-200 bg-white px-1.5 py-1 font-mono text-[10px] text-slate-600">
+          {cmd}
+        </code>
+        <button
+          onClick={() => void copy()}
+          className="rounded border border-indigo-300 px-2 py-1 text-[10px] font-medium text-indigo-700 hover:bg-indigo-100"
+        >
+          {copied ? "コピーしました" : "コマンドをコピー"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -395,6 +450,8 @@ export default function DossierPanel({
                 </ul>
               </div>
             )}
+
+            {data.thesis_draft && <ThesisDraftSection code={code} draft={data.thesis_draft} />}
 
             {data.sources && data.sources.length > 0 && (
               <div>
