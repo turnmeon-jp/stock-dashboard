@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { Candidate } from "@/app/lib/types";
 import CandidatesTable from "./CandidatesTable";
 import Portfolio from "./Portfolio";
@@ -82,9 +82,13 @@ export default function DashboardTabs({
 
   // 今日のアクション→各タブへの動線。action_queue.json の tab 値は文字列のため、
   // 未知のタブ名（旧データ・バックエンド側の想定違い）は無視して事故を防ぐ。
+  // 切替後はタブナビへスクロールする: パネルは最上部に残るため、これが無いと
+  // 「切り替わったのに何も起きていないように見える」（特にモバイル）。
+  const navRef = useRef<HTMLElement | null>(null);
   const navigateFromActionQueue = useCallback((tab: string) => {
     if (TAB_DEFS.some((d) => d.key === tab)) {
       switchTab(tab as Tab);
+      navRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [switchTab]);
 
@@ -101,7 +105,7 @@ export default function DashboardTabs({
       <ActionQueue onNavigate={navigateFromActionQueue} />
       {/* 全タブ共通: ウォッチ+厳選+保有銘柄の開示アラート/決算予定（見逃し防止の安全網） */}
       <DisclosureBanner />
-      <nav className="flex border-b border-slate-200 mb-4 sm:mb-5 overflow-x-auto scrollbar-hide">
+      <nav ref={navRef} className="flex border-b border-slate-200 mb-4 sm:mb-5 overflow-x-auto scrollbar-hide">
         {TAB_DEFS.map(({ key, label }) => (
           <button key={key} className={tabClass(key)} onClick={() => switchTab(key)}>
             {label}
