@@ -11,6 +11,47 @@ export interface ExitAddOn {
   reason: string | null;
 }
 
+// 時間ストップ（テーゼなし銘柄のデフォルト規律。pipeline/exit_monitor.py evaluate_time_stop 参照）
+export interface ExitTimeStop {
+  flag: "sell_candidate" | "warn" | null;
+  note?: string;
+  ret_pct?: number;
+  window_bdays?: number;
+  slope75_pct?: number;
+}
+
+// 保有銘柄の直近開示イベント（direction!=neutral のみ表示対象。pipeline/exit_monitor.py recent_events 参照）
+export interface ExitEvent {
+  date: string;
+  kind: string;
+  direction: "positive" | "negative" | "neutral";
+  title: string;
+}
+
+// 保有テーゼの効力判定（pipeline/exit_monitor.py thesis_status 参照）
+export interface ExitThesisStatus {
+  mode: "event" | "income" | "expired" | "none";
+  premise?: string | null;
+  review_by?: string;
+  days_left?: number;
+  days_over?: number;
+  falsifiers?: string[];
+}
+
+// 前回推奨の逆指値を割れたまま保有継続＝規律逸脱の検知（pipeline/exit_monitor.py detect_stop_breach 参照）
+export interface ExitStopBreach {
+  prev_date: string;
+  prev_stop: number;
+  gap_pct: number;
+}
+
+// テーゼの定性再点検（LLM等が事後に付与。まだ生成されていない銘柄では未設定）
+export interface ExitThesisReview {
+  verdict: "intact" | "weakened" | "broken";
+  reviewed_at: string;
+  summary: string;
+}
+
 // exit_monitor.json のスキーマ（出口監視）
 export interface ExitHolding {
   code: string;
@@ -27,6 +68,12 @@ export interface ExitHolding {
   action?: string;
   error?: string;
   add_on?: ExitAddOn;
+  // 2026-07-04 保有フォローアップ拡張（後方互換のため全て optional）
+  time_stop?: ExitTimeStop;
+  events?: ExitEvent[];
+  thesis_status?: ExitThesisStatus;
+  stop_breach?: ExitStopBreach;
+  thesis_review?: ExitThesisReview;
 }
 
 export interface ExitWatch {
@@ -363,4 +410,36 @@ export interface Position {
   buyDate: string; // 取得日 YYYY-MM-DD
   stopLoss: number; // 損切価格
   currentPrice: number | null; // 現在値（手入力）
+}
+
+// 実弾ポストモーテム（output/real_postmortem.json）。逆解析の基準値（勝率21%・利小損大）と比較する趣旨。
+export interface RealPostmortemTrade {
+  code: string | null;
+  name: string | null;
+  date: string | null;
+  holding_days: number | null;
+  pl_pct: number | null;
+  pl_yen: number | null;
+  R: number | null;
+  breach_days: number;
+  timestop_first: string | null;
+  days_after_timestop: number | null;
+  exit_reason: string | null;
+}
+
+export interface RealPostmortemSummary {
+  n: number;
+  win_rate: number | null; // %（0-100）
+  avg_win_pct: number | null;
+  avg_loss_pct: number | null;
+  payoff_ratio: number | null;
+  median_holding_days: number | null;
+  total_pl_yen: number;
+  breach_trades: number; // 前回逆指値割れのまま保有継続した決済件数
+}
+
+export interface RealPostmortemData {
+  generated_at: string;
+  trades: RealPostmortemTrade[];
+  summary: RealPostmortemSummary;
 }
