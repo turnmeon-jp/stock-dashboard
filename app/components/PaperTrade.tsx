@@ -827,7 +827,7 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
                       {LEDGER_SYSTEM_LABELS[sys] ?? sys}
                     </td>
                     {ledger.horizons.map((h) => {
-                      const b = buckets[String(h)];
+                      const b = buckets[String(h) as "5" | "20" | "60" | "120"];
                       if (!b || b.n === 0) {
                         return (
                           <td key={h} className="px-3 py-2 text-right text-slate-300">

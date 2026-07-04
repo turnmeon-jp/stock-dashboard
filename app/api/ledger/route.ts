@@ -1,15 +1,9 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { readLedgerReport } from "@/app/lib/ledger";
 
+// リクエスト毎にファイルを読み直す（候補台帳レポートの日次更新を即反映）。
 export const dynamic = "force-dynamic";
 
-const LEDGER_REPORT_PATH = path.join(process.cwd(), "..", "output", "ledger_report.json");
-
 export async function GET() {
-  try {
-    const raw = await fs.readFile(LEDGER_REPORT_PATH, "utf-8");
-    return Response.json(JSON.parse(raw), { status: 200 });
-  } catch {
-    return Response.json(null, { status: 200 });
-  }
+  const data = await readLedgerReport();
+  return Response.json(data, { status: data.ok ? 200 : 500 });
 }

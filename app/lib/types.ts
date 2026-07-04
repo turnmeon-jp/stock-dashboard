@@ -394,12 +394,56 @@ export interface LedgerBucket {
   tail_mean_top10pct: number | null; // 上位10%の平均（尾部の厚さ）
 }
 
+// 系統の昇格/廃止 判定（pipeline/candidate_ledger.py _verdict 参照・docs/ledger_criteria.md）。
+// **候補の提示にすぎず、自動でエントリー条件・SOURCESを書き換える処理はない＝最終判断は人間。**
+export type LedgerVerdict =
+  | "insufficient_n"
+  | "promote_candidate"
+  | "demote_candidate"
+  | "stale"
+  | "watch";
+
+// verdict の判定根拠（verdict_horizon＝既定20営業日のバケツのみを見る。他ホライズンは参考情報）
+export interface LedgerVerdictDetail {
+  n: number;
+  median_excess: number | null;
+  winrate: number | null; // win_rate ではなく winrate（Python側のキー名。バケツ側と綴りが異なる点に注意）
+}
+
+// config.yaml: ledger: セクション（判定基準。docs/ledger_criteria.md §2 に根拠）
+export interface LedgerCriteria {
+  verdict_horizon: number;
+  min_n_promote: number;
+  min_n_demote: number;
+  promote_winrate: number;
+  stale_days: number;
+}
+
+// systems[system] は "5"|"20"|"60"|"120" のホライズン別バケツと verdict/verdict_detail が
+// 同階層に混在する（report() の出力形そのまま。ネストを変えていない）
+export interface LedgerSystemReport {
+  "5"?: LedgerBucket;
+  "20"?: LedgerBucket;
+  "60"?: LedgerBucket;
+  "120"?: LedgerBucket;
+  verdict?: LedgerVerdict;
+  verdict_detail?: LedgerVerdictDetail;
+}
+
 export interface LedgerReport {
   generated_at: string;
   n_ledger_rows: number;
   has_data: boolean; // false = まだ評価済み行なし（蓄積中）
   horizons: number[];
-  systems: Record<string, Record<string, LedgerBucket>>; // systems[system][String(horizon)]
+  verdict_horizon?: number; // 判定に使うホライズン（既定20営業日）
+  ledger_criteria?: LedgerCriteria;
+  systems: Record<string, LedgerSystemReport>; // systems[system][String(horizon)] / .verdict / .verdict_detail
+}
+
+// api/ledger のレスポンス（ファイル欠損・解析失敗時は ok:false + message）
+export interface LedgerReportResponse extends LedgerReport {
+  ok: boolean;
+  message: string | null;
 }
 
 // ポートフォリオ建玉（localStorage に永続化）

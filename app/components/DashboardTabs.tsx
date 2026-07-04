@@ -14,8 +14,9 @@ import WatchList from "./WatchList";
 import EntryFunnel from "./EntryFunnel";
 import DisclosureBanner from "./DisclosureBanner";
 import ActionQueue from "./ActionQueue";
+import LedgerReport from "./LedgerReport";
 
-type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "guide";
+type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "ledger" | "guide";
 
 const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "candidates", label: "今日の候補" },
@@ -26,6 +27,7 @@ const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "exit",       label: "出口監視" },
   { key: "charts",     label: "チャート一覧" },
   { key: "paper",      label: "ペーパートレード" },
+  { key: "ledger",     label: "検証" },
   { key: "portfolio",  label: "ポートフォリオ" },
   { key: "guide",      label: "解説" },
 ];
@@ -166,6 +168,11 @@ export default function DashboardTabs({
       {mounted.has("paper") && (
         <div style={{ display: tab === "paper" ? "block" : "none" }}>
           <PaperTrade candidates={candidates} />
+        </div>
+      )}
+      {mounted.has("ledger") && (
+        <div style={{ display: tab === "ledger" ? "block" : "none" }}>
+          <LedgerReport />
         </div>
       )}
       {mounted.has("guide") && (
