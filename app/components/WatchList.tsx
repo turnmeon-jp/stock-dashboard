@@ -6,7 +6,7 @@ import type { WatchlistResponse, WatchItem } from "@/app/lib/watchlist";
 import { fetchDossierList, type DossierSummary } from "@/app/lib/dossier";
 import { fetchDilutionFlags, dilutionBadge, type DilutionFlag } from "@/app/lib/dilution";
 import { fetchLvhAlerts, lvhBadge, groupLvhAlertsByCode, type LvhAlert } from "@/app/lib/lvh";
-import { marginBadge } from "@/app/lib/margin";
+import { marginBadge, shortBadge } from "@/app/lib/margin";
 import DossierPanel from "./DossierPanel";
 import { ConfluenceBadges } from "./ConfluenceBadge";
 
@@ -62,6 +62,16 @@ function MarginBadge({ s }: { s: WatchItem }) {
   );
 }
 
+function ShortBadge({ s }: { s: WatchItem }) {
+  const b = shortBadge(s);
+  if (!b) return null;
+  return (
+    <span title={b.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${b.tone}`}>
+      {b.label}
+    </span>
+  );
+}
+
 function Card({
   s,
   onRemove,
@@ -99,6 +109,7 @@ function Card({
             <DilutionWarning flags={dilutionFlags} />
             <LvhWarning alerts={lvhAlerts} />
             <MarginBadge s={s} />
+            <ShortBadge s={s} />
             <ConfluenceBadges edgeAligned={s.edge_aligned} growthPass={s.growth_pass} isDomain={s.is_domain} />
           </div>
           <div className="text-[11px] text-slate-400">{s.sector}</div>

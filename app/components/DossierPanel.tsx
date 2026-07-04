@@ -351,6 +351,22 @@ export default function DossierPanel({
               </div>
             )}
 
+            {data.policy_context && (data.policy_context.text || (data.policy_context.evidence_urls?.length ?? 0) > 0) && (
+              <div className="rounded border border-slate-200 bg-white px-2 py-1.5 space-y-1">
+                <div className="font-semibold text-slate-500">政策文脈（判断材料・エッジの主張ではない）</div>
+                {data.policy_context.text && <p className="text-slate-700">{data.policy_context.text}</p>}
+                {data.policy_context.evidence_urls && data.policy_context.evidence_urls.length > 0 && (
+                  <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                    {data.policy_context.evidence_urls.map((u, i) => (
+                      <SourceLink key={i} href={u}>
+                        根拠{i + 1}
+                      </SourceLink>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {data.web_findings && data.web_findings.length > 0 && (
               <div>
                 <div className="mb-1 font-semibold text-slate-500">直近材料</div>

@@ -24,6 +24,13 @@ export interface DossierSupplyDemand {
   evidence_urls?: string[];
 }
 
+// 政策文脈（補助金採択・官公需・制度支援・規制の追い風/逆風）。判断材料でありエッジの主張ではない。
+// 2026-07-04 追加のため旧ドシエには無い（optional で後方互換）。
+export interface DossierPolicyContext {
+  text?: string;
+  evidence_urls?: string[];
+}
+
 export interface DossierWebFinding {
   date?: string | null;
   title?: string;
@@ -62,6 +69,7 @@ export interface DossierData {
   financial_read?: DossierFinancialRead;
   edinet_read?: DossierEdinetRead;
   supply_demand?: DossierSupplyDemand;
+  policy_context?: DossierPolicyContext;
   web_findings?: DossierWebFinding[];
   disqualifiers?: DossierDisqualifier[];
   verdict?: DossierVerdict;

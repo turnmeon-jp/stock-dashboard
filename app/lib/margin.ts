@@ -24,6 +24,29 @@ export interface MarginBadge {
   title: string;
 }
 
+// 報告空売り残高タグ（pipeline/short_tags.py。has_short二値が OOS差+0.139R・CI下限+0.008>0 で
+// 事前基準合格 = 「大口空売り報告なし側が良い」。output/short_stratify_report.md 参照。
+// タグ表示のみ＝機械フィルタではない。0.5%未満は報告義務がなく観測不能。
+export interface ShortTags {
+  short_reported?: boolean | null;
+  short_sum?: number | null;
+  short_n_filers?: number | null;
+  short_as_of?: string | null;
+}
+
+/** 大口空売りバッジ。報告あり（0.5%以上の残高が現存）のときだけ表示（報告なしが多数派のため）。 */
+export function shortBadge(t: ShortTags | null | undefined): MarginBadge | null {
+  if (!t || !t.short_reported) return null;
+  const sum = t.short_sum != null ? `${(t.short_sum * 100).toFixed(2)}%` : "-";
+  return {
+    label: "空売り残",
+    tone: "bg-rose-50 text-rose-600",
+    title: `機関の空売り残高報告あり: 合計${sum}・${t.short_n_filers ?? "-"}者` +
+      (t.short_as_of ? `（${t.short_as_of}時点）` : "") +
+      "。検証では報告なし側が+0.14R優位（タグ表示のみ・除外条件ではない）",
+  };
+}
+
 /** 需給バッジ（参考情報。除外条件ではない・警告トーンにしない）。
  *  緑「需給◎」= margin_ratio >= q2 または short_zero（売残ゼロ=非貸借。倍率の分母ゼロ別枠）
  *  灰橙「需給重」= margin_ratio < q1

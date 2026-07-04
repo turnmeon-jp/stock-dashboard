@@ -57,6 +57,11 @@ export interface WatchItem {
   long_per_adv?: number | null;
   short_zero?: boolean | null;
   margin_as_of?: string | null;
+  // 報告空売り残高タグ（pipeline/short_tags.py が付与。タグ表示のみ）
+  short_reported?: boolean | null;
+  short_sum?: number | null;
+  short_n_filers?: number | null;
+  short_as_of?: string | null;
 }
 
 export interface Regime {

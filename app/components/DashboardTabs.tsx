@@ -11,11 +11,14 @@ import ExitMonitor from "./ExitMonitor";
 import StockScreener from "./StockScreener";
 import Discover from "./Discover";
 import WatchList from "./WatchList";
+import EntryFunnel from "./EntryFunnel";
+import DisclosureBanner from "./DisclosureBanner";
 
-type Tab = "candidates" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "guide";
+type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "guide";
 
 const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "candidates", label: "今日の候補" },
+  { key: "funnel",     label: "エントリー厳選" },
   { key: "discover",   label: "発掘" },
   { key: "screen",     label: "気になる銘柄" },
   { key: "watch",      label: "ウォッチ" },
@@ -85,6 +88,8 @@ export default function DashboardTabs({
 
   return (
     <div>
+      {/* 全タブ共通: ウォッチ+厳選+保有銘柄の開示アラート/決算予定（見逃し防止の安全網） */}
+      <DisclosureBanner />
       <nav className="flex border-b border-slate-200 mb-4 sm:mb-5 overflow-x-auto scrollbar-hide">
         {TAB_DEFS.map(({ key, label }) => (
           <button key={key} className={tabClass(key)} onClick={() => switchTab(key)}>
@@ -106,6 +111,11 @@ export default function DashboardTabs({
           <p className="mt-3 text-xs text-slate-400">
             緑背景（上位5件）が集中対象。タップで注文プラン表示。詳細ボタンでチャートを確認。
           </p>
+        </div>
+      )}
+      {mounted.has("funnel") && (
+        <div style={{ display: tab === "funnel" ? "block" : "none" }}>
+          <EntryFunnel />
         </div>
       )}
       {mounted.has("watch") && (
