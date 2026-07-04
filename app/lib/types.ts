@@ -74,6 +74,8 @@ export interface ExitHolding {
   thesis_status?: ExitThesisStatus;
   stop_breach?: ExitStopBreach;
   thesis_review?: ExitThesisReview;
+  // エントリー時の理由（holdings_cli --reason 由来）。剪定判断の文脈。null = 未記録。
+  entry_reason?: string | null;
 }
 
 export interface ExitWatch {

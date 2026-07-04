@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import type { PaperPositionsData, PaperLogEntry, Candidate, LedgerReport } from "@/app/lib/types";
+import type { MetaResponse } from "@/app/lib/meta";
 import { fmtInt, fmtPct, fmtYen } from "@/app/lib/format";
 
-const INITIAL_CAPITAL = 3_000_000;
-const R_BASE = 30_000; // 3,000,000 * 1%
+// ペーパー資金基準（config.yaml paper.capital_total）は output/meta.json 経由で取得する。
+// ハードコード（旧: 3,000,000）は実弾と別勘定のため根絶した（2026-07-04）。
+// R_BASE = paper_total * 1%（risk_per_trade_pct、config.yaml と同値）
 // レジーム別Rキャップ（config.yaml と同値）
 const R_CAP: Record<string, number> = { risk_on: 5, neutral: 3, risk_off: 1 };
 
@@ -67,6 +69,8 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
   const [log, setLog] = useState<PaperLogEntry[]>([]);
   const [sectorConc, setSectorConc] = useState<SectorConcentration | null>(null);
   const [ledger, setLedger] = useState<LedgerReport | null>(null);
+  // ペーパー総資金（output/meta.json 由来）。未取得時は null のまま = 各表示は "-" にフォールバック。
+  const [paperTotal, setPaperTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<PaperLogEntry | null>(null);
 
@@ -84,17 +88,22 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
       fetch("/api/ledger")
         .then((r) => (r.ok ? (r.json() as Promise<LedgerReport | null>) : null))
         .catch(() => null),
+      fetch("/api/meta")
+        .then((r) => (r.ok ? (r.json() as Promise<MetaResponse>) : null))
+        .catch(() => null),
     ])
-      .then(([pos, lg, pm, led]) => {
+      .then(([pos, lg, pm, led, meta]) => {
         setPosData(pos);
         setLog(Array.isArray(lg) ? lg : []);
         setSectorConc(pm?.sector_concentration ?? null);
         setLedger(led ?? null);
+        setPaperTotal(meta?.capital?.paper_total ?? null);
       })
       .catch((err) => {
         console.error("ペーパートレードデータの取得に失敗:", err);
         setPosData({ positions: [], closed: [], equity: 0, started_at: "" });
         setLog([]);
+        setPaperTotal(null);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -128,8 +137,9 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
     0
   );
   const totalAsset = equity + positionValue;
-  const pnlYen = totalAsset - INITIAL_CAPITAL;
-  const pnlPct = (pnlYen / INITIAL_CAPITAL) * 100;
+  // paper_total 未取得時は損益額/率を "-" 表示にする（誤った%を出すよりよい。ハードコードへのフォールバックはしない）
+  const pnlYen = paperTotal != null ? totalAsset - paperTotal : null;
+  const pnlPct = pnlYen != null && paperTotal ? (pnlYen / paperTotal) * 100 : null;
 
   const realizedPnl = closed.reduce((s, c) => s + c.pnl, 0);
 
@@ -145,14 +155,16 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
       ? closedTrades.reduce((s, e) => s + (e.pnl ?? 0), 0) / closedTrades.length
       : null;
 
-  // ポートフォリオR計算（建玉のrisk_yen合計 / R_BASE）
-  const portfolioR = positions.reduce((s, p) => s + (p.risk_yen ?? 0), 0) / R_BASE;
+  // ポートフォリオR計算（建玉のrisk_yen合計 / R_BASE）。R_BASE = paper_total * 1%
+  const rBase = paperTotal != null ? paperTotal * 0.01 : null;
+  const portfolioR = rBase ? positions.reduce((s, p) => s + (p.risk_yen ?? 0), 0) / rBase : null;
 
-  // DD計算
-  const hwm = high_equity ?? INITIAL_CAPITAL;
-  const monthBase = month_start_equity ?? INITIAL_CAPITAL;
-  const cumDdPct = ((totalAsset - hwm) / hwm) * 100;
-  const monthDdPct = ((totalAsset - monthBase) / monthBase) * 100;
+  // DD計算。high_equity/month_start_equity 欠落時は paper_total にフォールバック（従来通り）だが
+  // paper_total 自体が未取得ならフォールバック先が無いため null（DD表示は "-"）。
+  const hwm = high_equity ?? paperTotal ?? null;
+  const monthBase = month_start_equity ?? paperTotal ?? null;
+  const cumDdPct = hwm ? ((totalAsset - hwm) / hwm) * 100 : null;
+  const monthDdPct = monthBase ? ((totalAsset - monthBase) / monthBase) * 100 : null;
 
   const edgeCodes = new Set(candidates.filter((c) => c.edge_aligned).map((c) => c.code));
   const positionCodes = positions.map((p) => p.code);
@@ -185,10 +197,10 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
         </div>
       )}
 
-      {/* DD警告（未停止だが-5%超） */}
-      {!dd_stopped && (cumDdPct <= -5 || monthDdPct <= -5) && (
+      {/* DD警告（未停止だが-5%超。paper_total 未取得時は判定不能なので出さない） */}
+      {!dd_stopped && ((cumDdPct !== null && cumDdPct <= -5) || (monthDdPct !== null && monthDdPct <= -5)) && (
         <div className="rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          ⚠️ DD注意: 累計{fmtPct(cumDdPct)} / 月次{fmtPct(monthDdPct)}
+          ⚠️ DD注意: 累計{cumDdPct !== null ? fmtPct(cumDdPct) : "—"} / 月次{monthDdPct !== null ? fmtPct(monthDdPct) : "—"}
           （停止基準: 累計-15% / 月次-8%）
         </div>
       )}
@@ -198,14 +210,14 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
         <div className="flex items-center justify-between mb-2">
           <h3 className="font-semibold text-slate-700 text-sm">リスク使用量</h3>
           <span className="text-xs text-slate-500">
-            {portfolioR.toFixed(1)}R 使用中
+            {portfolioR !== null ? `${portfolioR.toFixed(1)}R 使用中` : "— 使用中（資金データ未取得）"}
             <span className="ml-2 text-slate-400">（上限: risk_on=5R / neutral=3R / risk_off=1R）</span>
           </span>
         </div>
         <div className="flex gap-3 text-xs">
           {(["risk_on", "neutral", "risk_off"] as const).map((label) => {
             const cap = R_CAP[label];
-            const pct = Math.min((portfolioR / cap) * 100, 100);
+            const pct = portfolioR !== null ? Math.min((portfolioR / cap) * 100, 100) : 0;
             const barColor =
               pct >= 90 ? "bg-rose-500" : pct >= 70 ? "bg-amber-400" : "bg-emerald-500";
             return (
@@ -230,14 +242,14 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
           <div>
             <div className="flex justify-between mb-0.5 text-slate-500">
               <span>累計DD</span>
-              <span className={cumDdPct <= -10 ? "text-rose-600 font-semibold" : cumDdPct <= -5 ? "text-amber-600" : "text-slate-600"}>
-                {cumDdPct > 0 ? "+" : ""}{fmtPct(cumDdPct)}
+              <span className={cumDdPct !== null && cumDdPct <= -10 ? "text-rose-600 font-semibold" : cumDdPct !== null && cumDdPct <= -5 ? "text-amber-600" : "text-slate-600"}>
+                {cumDdPct !== null ? `${cumDdPct > 0 ? "+" : ""}${fmtPct(cumDdPct)}` : "—"}
               </span>
             </div>
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${Math.abs(cumDdPct) >= 12 ? "bg-rose-500" : Math.abs(cumDdPct) >= 7 ? "bg-amber-400" : "bg-slate-300"}`}
-                style={{ width: `${Math.min(Math.abs(cumDdPct) / 15 * 100, 100)}%` }}
+                className={`h-full rounded-full transition-all ${cumDdPct !== null && Math.abs(cumDdPct) >= 12 ? "bg-rose-500" : cumDdPct !== null && Math.abs(cumDdPct) >= 7 ? "bg-amber-400" : "bg-slate-300"}`}
+                style={{ width: `${cumDdPct !== null ? Math.min(Math.abs(cumDdPct) / 15 * 100, 100) : 0}%` }}
               />
             </div>
             <div className="text-slate-400 mt-0.5">停止基準 -15%</div>
@@ -245,14 +257,14 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
           <div>
             <div className="flex justify-between mb-0.5 text-slate-500">
               <span>月次DD</span>
-              <span className={monthDdPct <= -6 ? "text-rose-600 font-semibold" : monthDdPct <= -4 ? "text-amber-600" : "text-slate-600"}>
-                {monthDdPct > 0 ? "+" : ""}{fmtPct(monthDdPct)}
+              <span className={monthDdPct !== null && monthDdPct <= -6 ? "text-rose-600 font-semibold" : monthDdPct !== null && monthDdPct <= -4 ? "text-amber-600" : "text-slate-600"}>
+                {monthDdPct !== null ? `${monthDdPct > 0 ? "+" : ""}${fmtPct(monthDdPct)}` : "—"}
               </span>
             </div>
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${Math.abs(monthDdPct) >= 6 ? "bg-rose-500" : Math.abs(monthDdPct) >= 4 ? "bg-amber-400" : "bg-slate-300"}`}
-                style={{ width: `${Math.min(Math.abs(monthDdPct) / 8 * 100, 100)}%` }}
+                className={`h-full rounded-full transition-all ${monthDdPct !== null && Math.abs(monthDdPct) >= 6 ? "bg-rose-500" : monthDdPct !== null && Math.abs(monthDdPct) >= 4 ? "bg-amber-400" : "bg-slate-300"}`}
+                style={{ width: `${monthDdPct !== null ? Math.min(Math.abs(monthDdPct) / 8 * 100, 100) : 0}%` }}
               />
             </div>
             <div className="text-slate-400 mt-0.5">停止基準 -8%</div>
@@ -269,9 +281,13 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
         />
         <SummaryCard
           label="損益額 / 損益率"
-          value={`${pnlYen >= 0 ? "+" : ""}${fmtInt(pnlYen)}円`}
-          sub={`${pnlPct >= 0 ? "+" : ""}${fmtPct(pnlPct)} vs 300万`}
-          tone={pnlYen > 0 ? "pos" : pnlYen < 0 ? "neg" : "neutral"}
+          value={pnlYen !== null ? `${pnlYen >= 0 ? "+" : ""}${fmtInt(pnlYen)}円` : "—"}
+          sub={
+            pnlPct !== null
+              ? `${pnlPct >= 0 ? "+" : ""}${fmtPct(pnlPct)} vs ${paperTotal != null ? fmtYen(paperTotal) : "—"}`
+              : "資金データ未取得"
+          }
+          tone={pnlYen !== null ? (pnlYen > 0 ? "pos" : pnlYen < 0 ? "neg" : "neutral") : "neutral"}
         />
         <SummaryCard
           label="現金 / 建玉評価"

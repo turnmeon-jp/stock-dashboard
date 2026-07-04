@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Position } from "@/app/lib/types";
 import { fmtInt, fmtPct, fmtYen } from "@/app/lib/format";
-import { TOTAL_CAPITAL } from "@/app/lib/constants";
+import type { MetaResponse } from "@/app/lib/meta";
 
 const STORAGE_KEY = "trade-base.positions.v1";
 
@@ -50,6 +50,15 @@ export default function Portfolio() {
   const [hydrated, setHydrated] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [priceLoading, setPriceLoading] = useState(false);
+  // 総資金（実弾）は output/meta.json 由来。未取得時はハードコードせず "-" を表示する。
+  const [realTotal, setRealTotal] = useState<number | null>(null);
+
+  useEffect(() => {
+    fetch("/api/meta")
+      .then((r) => (r.ok ? (r.json() as Promise<MetaResponse>) : null))
+      .then((d) => setRealTotal(d?.capital?.real_total ?? null))
+      .catch(() => setRealTotal(null));
+  }, []);
 
   async function fetchAllPrices(base: Position[]) {
     if (base.length === 0) return;
@@ -122,7 +131,7 @@ export default function Portfolio() {
     if (p.currentPrice === null) return s;
     return s + (p.currentPrice - p.buyPrice) * p.shares;
   }, 0);
-  const cash = TOTAL_CAPITAL - totalInvested;
+  const cash = realTotal != null ? realTotal - totalInvested : null;
 
   const field =
     "w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none";
@@ -137,8 +146,12 @@ export default function Portfolio() {
           value={fmtYen(totalPnl)}
           tone={totalPnl > 0 ? "pos" : totalPnl < 0 ? "neg" : "neutral"}
         />
-        <SummaryCard label="現金余力" value={fmtYen(cash)} tone={cash < 0 ? "neg" : "neutral"} />
-        <SummaryCard label="総資金" value={fmtYen(TOTAL_CAPITAL)} />
+        <SummaryCard
+          label="現金余力"
+          value={cash != null ? fmtYen(cash) : "—"}
+          tone={cash != null && cash < 0 ? "neg" : "neutral"}
+        />
+        <SummaryCard label="総資金" value={realTotal != null ? fmtYen(realTotal) : "—"} />
       </div>
       <div className="flex justify-end">
         <button

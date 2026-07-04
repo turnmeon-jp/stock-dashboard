@@ -1,6 +1,6 @@
 import { readSignals } from "@/app/lib/signals";
+import { readMeta } from "@/app/lib/meta";
 import { fmtYen } from "@/app/lib/format";
-import { TOTAL_CAPITAL } from "@/app/lib/constants";
 import DashboardTabs from "@/app/components/DashboardTabs";
 import RegimeBanner from "@/app/components/RegimeBanner";
 
@@ -21,7 +21,7 @@ function fmtDateTime(s: string | null): string {
 }
 
 export default async function Home() {
-  const data = await readSignals();
+  const [data, meta] = await Promise.all([readSignals(), readMeta()]);
 
   return (
     <>
@@ -39,7 +39,12 @@ export default async function Home() {
               <span className="mx-1 text-slate-300">/</span>
               適合 <span className="text-emerald-700 font-medium">{data.n_edge_aligned}件</span>
             </span>
-            <span>総資金 <span className="text-slate-700 font-mono">{fmtYen(TOTAL_CAPITAL)}</span></span>
+            <span>
+              総資金（実弾）{" "}
+              <span className="text-slate-700 font-mono">
+                {meta.capital.real_total != null ? fmtYen(meta.capital.real_total) : "—"}
+              </span>
+            </span>
           </div>
         </div>
       </header>

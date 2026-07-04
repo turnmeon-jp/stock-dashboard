@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ExitHolding, ExitMonitorData } from "@/app/lib/types";
 import RealPostmortemSummary from "./RealPostmortemSummary";
 
@@ -82,6 +82,42 @@ function followupRows(h: ExitHolding) {
   return rows;
 }
 
+// 保有解消コマンドのコピーボタン（DossierPanel の ThesisDraftSection と同様のコピー実装）。
+// --reason は空のまま渡す＝人間が理由を書く前提。現値が未取得の銘柄はプレースホルダーにする。
+function CloseCommandRow({ h }: { h: ExitHolding }) {
+  const [copied, setCopied] = useState(false);
+  const priceStr = h.cur != null ? String(Math.round(h.cur)) : "<現値>";
+  const cmd = `python -m pipeline.holdings_cli close ${short(h.code)} --price ${priceStr} --reason ""`;
+
+  const copy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(cmd);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* クリップボードAPI不可の環境では無視（表示された文字列を手動選択すればコピー可能） */
+    }
+  }, [cmd]);
+
+  return (
+    <tr className="border-t border-slate-100 bg-slate-50/50">
+      <td colSpan={6} className="px-3 py-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <code className="max-w-full whitespace-pre-wrap break-all rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
+            {cmd}
+          </code>
+          <button
+            onClick={() => void copy()}
+            className="shrink-0 rounded border border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100"
+          >
+            {copied ? "コピーしました" : "closeコマンドをコピー"}
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export default function ExitMonitor() {
   const [data, setData] = useState<ExitMonitorData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,7 +156,7 @@ export default function ExitMonitor() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <span className="text-slate-500">更新: {data.updated}</span>
         <span className={`px-2 py-0.5 rounded text-xs font-medium ${regimeClass}`}>
           regime: {data.regime}
@@ -160,7 +196,11 @@ export default function ExitMonitor() {
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
                 {["銘柄", "取得", "現値", "含み", "逆指値", "アクション"].map((h, i) => (
-                  <th key={i} className="px-3 py-2 font-medium whitespace-nowrap">
+                  <th
+                    key={i}
+                    // 「取得」列はスマホでは非表示（主要列のみ表示。含みで代替可能なため）
+                    className={`px-3 py-2 font-medium whitespace-nowrap ${i === 1 ? "hidden sm:table-cell" : ""}`}
+                  >
                     {h}
                   </th>
                 ))}
@@ -175,7 +215,7 @@ export default function ExitMonitor() {
                       <span className="font-medium">{h.name}</span>
                       {h.theme === "AI" && <span className="ml-1 text-[10px] text-blue-500">AI</span>}
                     </td>
-                    <td className="px-3 py-2 text-right font-mono">{h.cost}</td>
+                    <td className="hidden px-3 py-2 text-right font-mono sm:table-cell">{h.cost}</td>
                     <td className="px-3 py-2 text-right font-mono">{h.cur ?? "-"}</td>
                     <td
                       className={`px-3 py-2 text-right font-mono ${
@@ -196,6 +236,17 @@ export default function ExitMonitor() {
                     </td>
                   </tr>,
                 ];
+                // エントリー理由（剪定コンテキスト。未記録は薄字で明示）
+                rows.push(
+                  <tr key={`${h.code}-reason`} className="border-t border-slate-100">
+                    <td
+                      colSpan={6}
+                      className={`px-3 py-1 text-xs ${h.entry_reason ? "text-slate-600" : "italic text-slate-300"}`}
+                    >
+                      📝 {h.entry_reason || "エントリー理由未記録"}
+                    </td>
+                  </tr>
+                );
                 // フォローアップ情報（規律逸脱・時間ストップ・テーゼ状態・テーゼ再点検・開示イベント）
                 for (const fr of followupRows(h)) {
                   rows.push(
@@ -218,6 +269,8 @@ export default function ExitMonitor() {
                     </tr>
                   );
                 }
+                // 手仕舞いコマンドのコピー（reasonは空欄・人間が記入する前提）
+                rows.push(<CloseCommandRow key={`${h.code}-close`} h={h} />);
                 return rows;
               })}
             </tbody>

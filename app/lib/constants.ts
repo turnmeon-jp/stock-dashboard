@@ -1,7 +1,8 @@
 // 運用パラメータ
 
-// 総資金（円）
-export const TOTAL_CAPITAL = 3_000_000;
+// 総資金は output/meta.json（app/lib/meta.ts の readMeta）から取得する。
+// 実弾/ペーパーで金額が異なる（config.yaml capital.total / paper.capital_total）ため、
+// ここでのハードコードは廃止（2026-07-04）。未取得時は各表示側で "-" にフォールバックする。
 
 // 集中対象とする上位件数（5銘柄集中）
 export const TOP_N = 5;
