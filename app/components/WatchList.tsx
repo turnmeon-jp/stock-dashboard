@@ -8,6 +8,7 @@ import { fetchDilutionFlags, dilutionBadge, type DilutionFlag } from "@/app/lib/
 import { fetchLvhAlerts, lvhBadge, groupLvhAlertsByCode, type LvhAlert } from "@/app/lib/lvh";
 import { marginBadge, shortBadge } from "@/app/lib/margin";
 import DossierPanel from "./DossierPanel";
+import TradeReportForm from "./TradeReportForm";
 import { ConfluenceBadges } from "./ConfluenceBadge";
 
 const short = (code: string) => code.replace(/0$/, "");
@@ -92,6 +93,8 @@ function Card({
   const o = s.order;
   const dist = s.dist_to_entry_pct;
   const isManual = s.source === "manual";
+  // 取得報告フォームの開閉（報告成功後は開いたまま結果表示。二重送信はフォーム側で防止）
+  const [reportOpen, setReportOpen] = useState(false);
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
       {/* ヘッダ: コード・銘柄・ステータス */}
@@ -185,10 +188,33 @@ function Card({
             {removing ? "削除中…" : "削除"}
           </button>
         )}
+        <button
+          onClick={() => setReportOpen((v) => !v)}
+          className={`rounded border px-2 py-0.5 text-xs font-medium ${
+            reportOpen
+              ? "border-slate-300 bg-slate-100 text-slate-600"
+              : "border-emerald-300 text-emerald-600 hover:bg-emerald-50"
+          }`}
+          title="実際に買った時の報告（holdings.json 更新＋journal 一次記録）"
+        >
+          {reportOpen ? "閉じる" : "取得報告"}
+        </button>
         <Link href={`/stock/${s.code}`} className="text-xs text-blue-600 hover:underline">
           チャート →
         </Link>
       </div>
+
+      {reportOpen && (
+        <div className="mt-2">
+          <TradeReportForm
+            kind="add"
+            code={s.code}
+            name={s.name}
+            defaultShares={o?.shares}
+            defaultPrice={s.close}
+          />
+        </div>
+      )}
 
       <DossierPanel code={s.code} initial={dossier} listReady={dossierListReady} />
     </div>

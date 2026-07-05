@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ExitHolding, ExitMonitorData } from "@/app/lib/types";
 import RealPostmortemSummary from "./RealPostmortemSummary";
+import TradeReportForm from "./TradeReportForm";
 
 // アクション文字列から行の色調を決める（損切り=赤 / 撤収=黄 / 過熱=緑）
 function actionTone(action: string): string {
@@ -82,45 +83,12 @@ function followupRows(h: ExitHolding) {
   return rows;
 }
 
-// 保有解消コマンドのコピーボタン（DossierPanel の ThesisDraftSection と同様のコピー実装）。
-// --reason は空のまま渡す＝人間が理由を書く前提。現値が未取得の銘柄はプレースホルダーにする。
-function CloseCommandRow({ h }: { h: ExitHolding }) {
-  const [copied, setCopied] = useState(false);
-  const priceStr = h.cur != null ? String(Math.round(h.cur)) : "<現値>";
-  const cmd = `python -m pipeline.holdings_cli close ${short(h.code)} --price ${priceStr} --reason ""`;
-
-  const copy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(cmd);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* クリップボードAPI不可の環境では無視（表示された文字列を手動選択すればコピー可能） */
-    }
-  }, [cmd]);
-
-  return (
-    <tr className="border-t border-slate-100 bg-slate-50/50">
-      <td colSpan={6} className="px-3 py-1.5">
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-          <code className="max-w-full whitespace-pre-wrap break-all rounded border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] text-slate-600">
-            {cmd}
-          </code>
-          <button
-            onClick={() => void copy()}
-            className="shrink-0 rounded border border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100"
-          >
-            {copied ? "コピーしました" : "closeコマンドをコピー"}
-          </button>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
 export default function ExitMonitor() {
   const [data, setData] = useState<ExitMonitorData | null>(null);
   const [loading, setLoading] = useState(true);
+  // 売却報告フォームを開いている銘柄コード（同時に開くのは1つ）と、報告済みコード
+  const [reportOpen, setReportOpen] = useState<string | null>(null);
+  const [reported, setReported] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch("/api/exit-monitor")
@@ -195,11 +163,11 @@ export default function ExitMonitor() {
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">
-                {["銘柄", "取得", "現値", "含み", "逆指値", "アクション"].map((h, i) => (
+                {["銘柄", "株数", "取得", "現値", "含み", "逆指値", "報告"].map((h, i) => (
                   <th
                     key={i}
-                    // 「取得」列はスマホでは非表示（主要列のみ表示。含みで代替可能なため）
-                    className={`px-3 py-2 font-medium whitespace-nowrap ${i === 1 ? "hidden sm:table-cell" : ""}`}
+                    // 「株数」「取得」列はスマホでは非表示（主要列のみ表示。含みで代替可能なため）
+                    className={`px-3 py-2 font-medium whitespace-nowrap ${i === 1 || i === 2 ? "hidden sm:table-cell" : ""}`}
                   >
                     {h}
                   </th>
@@ -208,13 +176,15 @@ export default function ExitMonitor() {
             </thead>
             <tbody>
               {data.holdings.flatMap((h) => {
+                const isReported = reported.has(h.code);
                 const rows = [
-                  <tr key={h.code} className="border-t border-slate-100">
+                  <tr key={h.code} className="border-t border-slate-200">
                     <td className="px-3 py-2 whitespace-nowrap">
                       <span className="font-mono text-slate-500">{short(h.code)}</span>{" "}
                       <span className="font-medium">{h.name}</span>
                       {h.theme === "AI" && <span className="ml-1 text-[10px] text-blue-500">AI</span>}
                     </td>
+                    <td className="hidden px-3 py-2 text-right font-mono sm:table-cell">{h.shares}</td>
                     <td className="hidden px-3 py-2 text-right font-mono sm:table-cell">{h.cost}</td>
                     <td className="px-3 py-2 text-right font-mono">{h.cur ?? "-"}</td>
                     <td
@@ -231,16 +201,52 @@ export default function ExitMonitor() {
                     <td className="px-3 py-2 text-right font-mono text-rose-600">
                       {h.stop_level ?? "-"}
                     </td>
-                    <td className={`px-3 py-2 text-xs ${actionTone(h.action ?? "")}`}>
+                    <td className="px-3 py-2 text-right">
+                      {isReported ? (
+                        <span className="whitespace-nowrap text-[10px] text-emerald-600">✔ 報告済</span>
+                      ) : (
+                        <button
+                          onClick={() => setReportOpen(reportOpen === h.code ? null : h.code)}
+                          className={`whitespace-nowrap rounded border px-2 py-0.5 text-[10px] font-medium ${
+                            reportOpen === h.code
+                              ? "border-slate-300 bg-slate-100 text-slate-600"
+                              : "border-rose-300 text-rose-600 hover:bg-rose-50"
+                          }`}
+                        >
+                          {reportOpen === h.code ? "閉じる" : "売却報告"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>,
+                  // アクション（機械判断）: 右端カラムだと長文が潰れるため全幅行で表示
+                  <tr key={`${h.code}-action`}>
+                    <td colSpan={7} className={`px-3 py-1.5 text-xs ${actionTone(h.action ?? "")}`}>
                       {h.action ?? h.error ?? "-"}
                     </td>
                   </tr>,
                 ];
+                // 売却報告フォーム（開いている銘柄のみ）
+                if (reportOpen === h.code && !isReported) {
+                  rows.push(
+                    <tr key={`${h.code}-report`}>
+                      <td colSpan={7} className="px-3 py-2">
+                        <TradeReportForm
+                          kind="close"
+                          code={h.code}
+                          name={h.name}
+                          defaultShares={h.shares}
+                          defaultPrice={h.cur}
+                          onSuccess={() => setReported((prev) => new Set(prev).add(h.code))}
+                        />
+                      </td>
+                    </tr>
+                  );
+                }
                 // エントリー理由（剪定コンテキスト。未記録は薄字で明示）
                 rows.push(
                   <tr key={`${h.code}-reason`} className="border-t border-slate-100">
                     <td
-                      colSpan={6}
+                      colSpan={7}
                       className={`px-3 py-1 text-xs ${h.entry_reason ? "text-slate-600" : "italic text-slate-300"}`}
                     >
                       📝 {h.entry_reason || "エントリー理由未記録"}
@@ -251,7 +257,7 @@ export default function ExitMonitor() {
                 for (const fr of followupRows(h)) {
                   rows.push(
                     <tr key={`${h.code}-${fr.key}`} className="border-t border-slate-100">
-                      <td colSpan={6} className={`px-3 py-1.5 text-xs ${fr.cls}`}>
+                      <td colSpan={7} className={`px-3 py-1.5 text-xs ${fr.cls}`}>
                         {fr.content}
                       </td>
                     </tr>
@@ -262,15 +268,13 @@ export default function ExitMonitor() {
                   const a = h.add_on;
                   rows.push(
                     <tr key={`${h.code}-addon`} className="border-t border-slate-100 bg-sky-50">
-                      <td colSpan={6} className="px-3 py-1.5 text-xs text-sky-700">
+                      <td colSpan={7} className="px-3 py-1.5 text-xs text-sky-700">
                         🔼買い増し: 指値~{a.limit}(SMA25)・+{a.add_shares}株・混合建値{a.blended_cost}
                         ・逆指値{a.stop}維持（フリーロール条件成立）
                       </td>
                     </tr>
                   );
                 }
-                // 手仕舞いコマンドのコピー（reasonは空欄・人間が記入する前提）
-                rows.push(<CloseCommandRow key={`${h.code}-close`} h={h} />);
                 return rows;
               })}
             </tbody>
