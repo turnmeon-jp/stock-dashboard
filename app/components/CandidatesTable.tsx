@@ -59,6 +59,12 @@ function MarginBadge({ c }: { c: Candidate }) {
   );
 }
 
+// 寄成上限=指値+0.5%（執行規約 2026-07-07: 寄りがこれ以下なら寄成・超えたら見送り）。
+// signals.json には無い派生値のため表示側で計算する（watchlist側は order.max_open で持つ）
+function maxOpen(trigger: number | null | undefined): number | null {
+  return trigger != null ? Math.round(trigger * 1.005 * 10) / 10 : null;
+}
+
 function OrderPlan({ c }: { c: Candidate }) {
   return (
     <div className="bg-amber-50 border-l-4 border-amber-400 p-3 sm:p-4 text-sm leading-relaxed text-slate-800">
@@ -75,8 +81,10 @@ function OrderPlan({ c }: { c: Candidate }) {
           ① IFD 第1注文（エントリー）
         </p>
         <p className="text-slate-800">
-          買い指値{" "}
-          <span className="font-mono font-bold text-blue-700">{fmtNum(c.trigger_price)}</span>
+          {/* 寄成上限=指値+0.5%（執行規約 2026-07-07: 寄りがこれ以下なら寄成・超えたら見送り） */}
+          寄成上限{" "}
+          <span className="font-mono font-bold text-blue-700">{fmtNum(maxOpen(c.trigger_price))}</span>
+          <span className="ml-1 text-xs text-slate-500">（指値目安 {fmtNum(c.trigger_price)}）</span>
           {" "}×{" "}
           <span className="font-semibold">{fmtInt(c.shares)}株</span>
           <span className="ml-2 text-xs text-slate-500">投資額 {fmtYen(c.invested)}</span>
@@ -173,7 +181,11 @@ function CandidateCard({
       {/* 主要数値グリッド */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-3 pb-2.5 text-xs">
         <div>
-          <span className="text-slate-400">指値</span>{" "}
+          <span className="text-slate-400">寄成上限</span>{" "}
+          <span className="font-mono font-semibold text-blue-700">{fmtNum(maxOpen(c.trigger_price))}</span>
+        </div>
+        <div>
+          <span className="text-slate-400">指値目安</span>{" "}
           <span className="font-mono font-semibold text-slate-800">{fmtNum(c.trigger_price)}</span>
         </div>
         <div>

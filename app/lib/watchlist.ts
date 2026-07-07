@@ -8,6 +8,9 @@ const WATCHLIST_PATH = path.join(process.cwd(), "..", "output", "watchlist.json"
 
 export interface WatchOrder {
   ifd_entry: number;
+  // 寄成上限=指値+0.5%（2026-07-07 執行規約: 寄りがこれ以下なら寄成・超えたら見送り）。
+  // 付与前の旧JSONでは欠損しうるため表示側で ifd_entry から補完する
+  max_open?: number | null;
   oco_stop: number;
   oco_tp_first: number;
   rr_first: number | null;

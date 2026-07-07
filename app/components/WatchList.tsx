@@ -153,8 +153,14 @@ function Card({
       <div className="mt-2 rounded bg-slate-50 p-2">
         <div className="mb-1 text-[10px] font-semibold text-slate-500">注文設計（IFDOCO）</div>
         {o ? (
-          <div className="grid grid-cols-3 gap-2">
-            <Metric label="IFD 買い指値" value={yen(o.ifd_entry)} tone="text-blue-700" />
+          <div className="grid grid-cols-4 gap-2">
+            {/* 寄成上限=指値+0.5%（執行規約 2026-07-07）。旧JSONは ifd_entry から補完 */}
+            <Metric
+              label="寄成上限（寄り≤で買い）"
+              value={yen(o.max_open ?? Math.round(o.ifd_entry * 1.005 * 10) / 10)}
+              tone="text-blue-700"
+            />
+            <Metric label="指値目安" value={yen(o.ifd_entry)} />
             <Metric label="OCO 損切" value={yen(o.oco_stop)} tone="text-red-600" />
             <Metric label="OCO 利確" value={yen(o.oco_tp_first)} tone="text-emerald-700" />
           </div>
