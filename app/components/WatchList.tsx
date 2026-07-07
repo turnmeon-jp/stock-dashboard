@@ -24,10 +24,12 @@ function statusTone(s: string): string {
   return "bg-slate-50 text-slate-600 border-slate-200";
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function Metric({ label, value, tone, hint }: { label: string; value: string; tone?: string; hint?: string }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] text-slate-400">{label}</span>
+      <span className={`text-[10px] text-slate-400 ${hint ? "cursor-help" : ""}`} title={hint}>
+        {label}
+      </span>
       <span className={`text-sm font-medium tabular-nums ${tone ?? "text-slate-700"}`}>{value}</span>
     </div>
   );
@@ -37,7 +39,10 @@ function DilutionWarning({ flags }: { flags?: DilutionFlag[] | null }) {
   const w = dilutionBadge(flags);
   if (!w) return null;
   return (
-    <span title={w.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${w.tone}`}>
+    <span
+      title={`希薄化（新株が増えて1株あたりの価値が薄まること）の可能性。${w.title}`}
+      className={`rounded px-1 text-[10px] font-semibold cursor-help ${w.tone}`}
+    >
       {w.label}
     </span>
   );
@@ -47,7 +52,10 @@ function LvhWarning({ alerts }: { alerts?: LvhAlert[] | null }) {
   const w = lvhBadge(alerts);
   if (!w) return null;
   return (
-    <span title={w.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${w.tone}`}>
+    <span
+      title={`大量保有報告（5%以上株を買った人の届け出）。${w.title}`}
+      className={`rounded px-1 text-[10px] font-semibold cursor-help ${w.tone}`}
+    >
       {w.label}
     </span>
   );
@@ -57,7 +65,10 @@ function MarginBadge({ s }: { s: WatchItem }) {
   const b = marginBadge(s);
   if (!b) return null;
   return (
-    <span title={b.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${b.tone}`}>
+    <span
+      title={`需給（買いたい人と売りたい人のバランス）の参考タグ。${b.title}`}
+      className={`rounded px-1 text-[10px] font-semibold cursor-help ${b.tone}`}
+    >
       {b.label}
     </span>
   );
@@ -67,7 +78,10 @@ function ShortBadge({ s }: { s: WatchItem }) {
   const b = shortBadge(s);
   if (!b) return null;
   return (
-    <span title={b.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${b.tone}`}>
+    <span
+      title={`空売り残（株を借りて売っている大口の残高）の参考タグ。${b.title}`}
+      className={`rounded px-1 text-[10px] font-semibold cursor-help ${b.tone}`}
+    >
       {b.label}
     </span>
   );
@@ -143,10 +157,11 @@ function Card({
         <Metric label="SMA25(買場)" value={yen(s.sma25)} />
         <Metric
           label="押し目余地"
+          hint="SMA25（25日移動平均線）までの距離。上昇トレンド中の一時的な下げ＝買い場候補"
           value={dist != null ? `${dist > 0 ? "+" : ""}${dist}%` : "-"}
           tone={dist != null && dist <= 1 ? "text-emerald-600" : "text-slate-700"}
         />
-        <Metric label="RSI" value={`${s.rsi14}`} />
+        <Metric label="RSI" hint="買われすぎ・売られすぎの目安（14日）" value={`${s.rsi14}`} />
       </div>
 
       {/* IFDOCO 注文設計 */}
@@ -157,6 +172,7 @@ function Card({
             {/* 寄成上限=指値+0.5%（執行規約 2026-07-07）。旧JSONは ifd_entry から補完 */}
             <Metric
               label="寄成上限（寄り≤で買い）"
+              hint="寄付（9時最初の値段）での成行買いの上限。これ以下なら買い、超えたら見送り"
               value={yen(o.max_open ?? Math.round(o.ifd_entry * 1.005 * 10) / 10)}
               tone="text-blue-700"
             />
@@ -172,7 +188,11 @@ function Card({
             {o.shares != null ? (
               <>
                 {o.shares.toLocaleString()}株 / 投資 ¥{yen(o.invested)} / リスク ¥{yen(o.risk_yen)}
-                {o.effective_r_pct != null && `（R=${o.effective_r_pct}%）`}
+                {o.effective_r_pct != null && (
+                  <span title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）" className="cursor-help">
+                    （R={o.effective_r_pct}%）
+                  </span>
+                )}
               </>
             ) : (
               <span className="text-amber-600">{o.size_note ?? "サイズ不能"}</span>

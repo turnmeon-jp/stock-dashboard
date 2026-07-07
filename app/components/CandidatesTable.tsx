@@ -23,7 +23,10 @@ function DossierWarning({ call }: { call?: string | null }) {
   const w = dossierWarningBadge(call);
   if (!w) return null;
   return (
-    <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}>
+    <span
+      title={`落選判定（買ってはいけない理由がないかの審査）の結果。${w.title}`}
+      className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}
+    >
       {w.label}
     </span>
   );
@@ -33,7 +36,10 @@ function DilutionWarning({ flags }: { flags?: DilutionFlag[] | null }) {
   const w = dilutionBadge(flags);
   if (!w) return null;
   return (
-    <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}>
+    <span
+      title={`希薄化（新株が増えて1株あたりの価値が薄まること）の可能性。${w.title}`}
+      className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}
+    >
       {w.label}
     </span>
   );
@@ -43,7 +49,10 @@ function LvhWarning({ alerts }: { alerts?: LvhAlert[] | null }) {
   const w = lvhBadge(alerts);
   if (!w) return null;
   return (
-    <span title={w.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}>
+    <span
+      title={`大量保有報告（5%以上株を買った人の届け出）。${w.title}`}
+      className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${w.tone}`}
+    >
       {w.label}
     </span>
   );
@@ -53,7 +62,10 @@ function MarginBadge({ c }: { c: Candidate }) {
   const b = marginBadge(c);
   if (!b) return null;
   return (
-    <span title={b.title} className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${b.tone}`}>
+    <span
+      title={`需給（買いたい人と売りたい人のバランス）の参考タグ。${b.title}`}
+      className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${b.tone}`}
+    >
       {b.label}
     </span>
   );
@@ -82,7 +94,12 @@ function OrderPlan({ c }: { c: Candidate }) {
         </p>
         <p className="text-slate-800">
           {/* 寄成上限=指値+0.5%（執行規約 2026-07-07: 寄りがこれ以下なら寄成・超えたら見送り） */}
-          寄成上限{" "}
+          <span
+            className="cursor-help"
+            title="寄付（9時最初の値段）での成行買いの上限。これ以下なら買い、超えたら見送り"
+          >
+            寄成上限
+          </span>{" "}
           <span className="font-mono font-bold text-blue-700">{fmtNum(maxOpen(c.trigger_price))}</span>
           <span className="ml-1 text-xs text-slate-500">（指値目安 {fmtNum(c.trigger_price)}）</span>
           {" "}×{" "}
@@ -107,7 +124,11 @@ function OrderPlan({ c }: { c: Candidate }) {
           </p>
         </div>
         <p className="mt-1 text-xs text-slate-500">
-          許容損失 {fmtYen(c.risk_yen)}（{fmtPct(c.effective_r_pct, 2)}）
+          許容損失 {fmtYen(c.risk_yen)}（
+          <span title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）" className="cursor-help">
+            {fmtPct(c.effective_r_pct, 2)}
+          </span>
+          ）
           {c.trail_note ? `　${c.trail_note}` : ""}
         </p>
       </div>
@@ -181,7 +202,12 @@ function CandidateCard({
       {/* 主要数値グリッド */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-3 pb-2.5 text-xs">
         <div>
-          <span className="text-slate-400">寄成上限</span>{" "}
+          <span
+            className="text-slate-400 cursor-help"
+            title="寄付（9時最初の値段）での成行買いの上限。これ以下なら買い、超えたら見送り"
+          >
+            寄成上限
+          </span>{" "}
           <span className="font-mono font-semibold text-blue-700">{fmtNum(maxOpen(c.trigger_price))}</span>
         </div>
         <div>
@@ -207,7 +233,12 @@ function CandidateCard({
         <div>
           <span className="text-slate-400">許容損失</span>{" "}
           <span className="font-mono">{fmtInt(c.risk_yen)}円</span>{" "}
-          <span className="text-slate-400">({fmtPct(c.effective_r_pct, 2)})</span>
+          <span
+            className="text-slate-400 cursor-help"
+            title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）"
+          >
+            ({fmtPct(c.effective_r_pct, 2)})
+          </span>
         </div>
         {/* 補助指標: 小さく */}
         <div className="text-slate-500">
@@ -336,23 +367,23 @@ export default function CandidatesTable({
     candidates.filter((c) => c.edge_aligned).slice(0, TOP_N).map((c) => c.code)
   );
 
-  const cols = [
-    "銘柄",
-    "市場",
-    "セクター",
-    "型",
-    "指値",
-    "損切",
-    "利確目安",
-    "株数",
-    "投資額",
-    "許容損失",
-    "RSI",
-    "SMA25乖離",
-    "RS120(%)",
-    "売買代金(億)",
-    "適合",
-    "執行可能日",
+  const cols: { label: string; hint?: string }[] = [
+    { label: "銘柄" },
+    { label: "市場" },
+    { label: "セクター" },
+    { label: "型" },
+    { label: "指値" },
+    { label: "損切", hint: "逆指値：ここまで下がったら自動で売る予約注文" },
+    { label: "利確目安" },
+    { label: "株数" },
+    { label: "投資額" },
+    { label: "許容損失", hint: "R＝1回の取引で許す損失額を1とする単位" },
+    { label: "RSI", hint: "買われすぎ・売られすぎの目安（14日）" },
+    { label: "SMA25乖離", hint: "25日移動平均線からの離れ具合。マイナス（下）＝押し目候補" },
+    { label: "RS120(%)", hint: "他の銘柄と比べた強さ（120日）" },
+    { label: "売買代金(億)" },
+    { label: "適合", hint: "優位性の条件（edge_aligned）を全て満たした候補" },
+    { label: "執行可能日" },
   ];
 
   return (
@@ -413,8 +444,12 @@ export default function CandidatesTable({
               <thead>
                 <tr className="bg-slate-100 text-slate-600 text-left">
                   {cols.map((h) => (
-                    <th key={h} className="px-3 py-2 font-medium whitespace-nowrap">
-                      {h}
+                    <th
+                      key={h.label}
+                      title={h.hint}
+                      className={`px-3 py-2 font-medium whitespace-nowrap ${h.hint ? "cursor-help" : ""}`}
+                    >
+                      {h.label}
                     </th>
                   ))}
                 </tr>
@@ -547,7 +582,13 @@ function FragmentRow({
         <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtInt(c.invested)}</td>
         <td className="px-3 py-2 text-right font-mono whitespace-nowrap">
           {fmtInt(c.risk_yen)}
-          <span className="text-slate-400 text-xs"> ({fmtPct(c.effective_r_pct, 2)})</span>
+          <span
+            className="text-slate-400 text-xs cursor-help"
+            title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）"
+          >
+            {" "}
+            ({fmtPct(c.effective_r_pct, 2)})
+          </span>
         </td>
         <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtNum(c.rsi14)}</td>
         <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{fmtPct(c.dist_sma25_pct)}</td>

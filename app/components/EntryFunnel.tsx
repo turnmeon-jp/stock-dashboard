@@ -34,10 +34,12 @@ function dossierBadge(call: string | null | undefined): { label: string; tone: s
   return { label: "ドシエ未審査", tone: "bg-slate-100 text-slate-500", title: "ドシエ未生成。下のパネルから生成できます（拒否権チェック前）" };
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
+function Metric({ label, value, tone, hint }: { label: string; value: string; tone?: string; hint?: string }) {
   return (
     <div className="flex flex-col">
-      <span className="text-[10px] text-slate-400">{label}</span>
+      <span className={`text-[10px] text-slate-400 ${hint ? "cursor-help" : ""}`} title={hint}>
+        {label}
+      </span>
       <span className={`text-sm font-medium tabular-nums ${tone ?? "text-slate-700"}`}>{value}</span>
     </div>
   );
@@ -84,18 +86,24 @@ function EntryCard({
             {e.lvh_recent && (
               <span
                 className="rounded bg-violet-100 px-1 text-[10px] font-semibold text-violet-700 cursor-help"
-                title="直近7日以内にアクティビスト大量保有報告あり（注意喚起・売買シグナルではない）"
+                title="大量保有報告（5%以上株を買った人の届け出）が直近7日以内にあり（注意喚起・売買シグナルではない）"
               >
                 🎯
               </span>
             )}
             {mb && (
-              <span title={mb.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${mb.tone}`}>
+              <span
+                title={`需給（買いたい人と売りたい人のバランス）の参考タグ。${mb.title}`}
+                className={`rounded px-1 text-[10px] font-semibold cursor-help ${mb.tone}`}
+              >
                 {mb.label}
               </span>
             )}
             {sb && (
-              <span title={sb.title} className={`rounded px-1 text-[10px] font-semibold cursor-help ${sb.tone}`}>
+              <span
+                title={`空売り残（株を借りて売っている大口の残高）の参考タグ。${sb.title}`}
+                className={`rounded px-1 text-[10px] font-semibold cursor-help ${sb.tone}`}
+              >
                 {sb.label}
               </span>
             )}
@@ -117,9 +125,10 @@ function EntryCard({
 
       {/* 現況・成長 */}
       <div className="mt-2 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
-        <Metric label="RSI14" value={e.rsi14 != null ? `${e.rsi14}` : "-"} />
+        <Metric label="RSI14" value={e.rsi14 != null ? `${e.rsi14}` : "-"} hint="買われすぎ・売られすぎの目安（14日）" />
         <Metric
           label="SMA25乖離"
+          hint="25日移動平均線からの離れ具合。マイナス（下）＝押し目候補"
           value={e.dist_sma25_pct != null ? `${e.dist_sma25_pct > 0 ? "+" : ""}${e.dist_sma25_pct}%` : "-"}
         />
         <Metric label="成長スコア" value={e.growth_score != null ? `${e.growth_score}` : "-"} />
@@ -141,7 +150,11 @@ function EntryCard({
           {e.shares != null ? (
             <>
               {e.shares.toLocaleString()}株 / 投資 ¥{yen(e.invested)} / リスク ¥{yen(e.risk_yen)}
-              {e.effective_r_pct != null && `（R=${e.effective_r_pct}%）`}
+              {e.effective_r_pct != null && (
+                <span title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）" className="cursor-help">
+                  （R={e.effective_r_pct}%）
+                </span>
+              )}
             </>
           ) : (
             <span className="text-amber-600">サイズ不能</span>

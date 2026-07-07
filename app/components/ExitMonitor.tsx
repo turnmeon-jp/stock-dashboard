@@ -126,9 +126,20 @@ export default function ExitMonitor() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <span className="text-slate-500">更新: {data.updated}</span>
-        <span className={`px-2 py-0.5 rounded text-xs font-medium ${regimeClass}`}>
+        <span
+          className={`px-2 py-0.5 rounded text-xs font-medium ${regimeClass}`}
+          title="市場全体の地合い。攻めてよい時期かの判定"
+        >
           regime: {data.regime}
         </span>
+      </div>
+
+      {/* アイコン凡例（一言） */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">
+        <span title="有効テーゼ：前提が崩れていない限り保有継続">⏸ テーゼ保有中</span>
+        <span title="時間ストップ：一定期間成果が出ず見切りの目安">🟥 時間ストップ</span>
+        <span title="部分利確：含み益の一部を確保する目安">💰 部分利確</span>
+        <span title="規律逸脱：前回の逆指値を守れず保有継続してしまっている">⚠️ 規律逸脱</span>
       </div>
 
       {/* テーマ集中バー */}

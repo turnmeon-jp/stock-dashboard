@@ -35,6 +35,22 @@ function verdictTone(call?: string | null): string {
   }
 }
 
+// 落選判定＝「買うべき」ではなく「買ってはいけない理由がないか」の審査結果。バッジのtitleツールチップ用。
+function verdictTitle(call?: string | null): string {
+  switch (call) {
+    case "落選":
+      return "買ってはいけない理由が見つかった（買い推奨ではなく落選の審査結果）";
+    case "重大懸念":
+      return "重大なリスクが見つかった（買い推奨ではなく落選の審査結果）";
+    case "懸念あり・監視":
+      return "軽い懸念点あり。監視を推奨（落選ではない）";
+    case "落選事由なし":
+      return "買ってはいけない理由は見つからなかった（買い推奨という意味ではない）";
+    default:
+      return "落選判定＝買ってはいけない理由がないかの審査結果";
+  }
+}
+
 function SeverityBadge({ severity }: { severity: string }) {
   const hard = severity === "hard";
   const tone = hard ? "bg-red-100 text-red-700" : "bg-amber-50 text-amber-700";
@@ -81,13 +97,28 @@ function ThesisDraftSection({ code, draft }: { code: string; draft: DossierThesi
   return (
     <div className="rounded border border-indigo-200 bg-indigo-50/50 px-2 py-1.5 space-y-1.5">
       <div className="font-semibold text-indigo-700">📝 テーゼ候補（下書き・採用は holdings_cli）</div>
-      {draft.premise && <p className="font-medium text-slate-700">{draft.premise}</p>}
+      <p className="text-[11px] text-indigo-600">
+        これは買い推奨ではなく、保有する場合の点検リストの下書き。採用するかは人間が決める。
+      </p>
+      {draft.premise && (
+        <p className="font-medium text-slate-700">
+          <span className="mr-1 text-[10px] font-normal text-slate-400" title="テーゼ＝持ち続けてよい理由（前提）。崩れたら手放す">
+            前提:
+          </span>
+          {draft.premise}
+        </p>
+      )}
       {draft.falsifiers && draft.falsifiers.length > 0 && (
-        <ul className="ml-4 list-disc space-y-0.5 text-slate-600">
-          {draft.falsifiers.map((f, i) => (
-            <li key={i}>{f}</li>
-          ))}
-        </ul>
+        <div>
+          <span className="text-[10px] text-slate-400" title="反証条件＝前提が間違いだったと判断するチェック項目">
+            崩れたら手放す条件:
+          </span>
+          <ul className="ml-4 list-disc space-y-0.5 text-slate-600">
+            {draft.falsifiers.map((f, i) => (
+              <li key={i}>{f}</li>
+            ))}
+          </ul>
+        </div>
       )}
       {draft.review_by_hint && <div className="text-slate-500">確認期日候補: {draft.review_by_hint}</div>}
       {draft.basis && <p className="text-[11px] text-slate-400">{draft.basis}</p>}
@@ -248,9 +279,12 @@ export default function DossierPanel({
       onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
     >
       <summary className="flex cursor-pointer select-none items-center gap-2 px-3 py-1.5 text-xs font-medium text-slate-600">
-        <span>🗂 投資ドシエ</span>
+        <span title="AIが有価証券報告書とWebを読み、買わない理由がないかを審査した資料">🗂 投資ドシエ</span>
         {verdictCall && (
-          <span className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${verdictTone(verdictCall)}`}>
+          <span
+            title={verdictTitle(verdictCall)}
+            className={`cursor-help rounded border px-1.5 py-0.5 text-[10px] font-semibold ${verdictTone(verdictCall)}`}
+          >
             {verdictCall}
           </span>
         )}
@@ -338,7 +372,10 @@ export default function DossierPanel({
 
             {data.disqualifiers && data.disqualifiers.length > 0 && (
               <div>
-                <div className="mb-1 font-semibold text-slate-500">落選事由候補（{data.disqualifiers.length}件）</div>
+                <div className="mb-1 font-semibold text-slate-500">
+                  落選事由候補（{data.disqualifiers.length}件）
+                  <span className="ml-1 text-[10px] font-normal text-slate-400">＝買ってはいけない理由の候補</span>
+                </div>
                 <div className="space-y-1.5">
                   {data.disqualifiers.map((dq, i) => (
                     <div key={i} className="rounded border border-slate-200 bg-white px-2 py-1.5">
@@ -392,7 +429,10 @@ export default function DossierPanel({
 
             {data.supply_demand && (data.supply_demand.text || (data.supply_demand.evidence_urls?.length ?? 0) > 0) && (
               <div className="rounded border border-slate-200 bg-white px-2 py-1.5 space-y-1">
-                <div className="font-semibold text-slate-500">需給</div>
+                <div className="font-semibold text-slate-500">
+                  需給
+                  <span className="ml-1 text-[10px] font-normal text-slate-400">＝買いたい人と売りたい人のバランス</span>
+                </div>
                 {data.supply_demand.text && <p className="text-slate-700">{data.supply_demand.text}</p>}
                 {data.supply_demand.evidence_urls && data.supply_demand.evidence_urls.length > 0 && (
                   <div className="flex flex-wrap gap-x-2 gap-y-0.5">
