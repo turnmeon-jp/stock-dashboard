@@ -473,16 +473,18 @@ export default function ExitMonitor() {
         </div>
 
         {/* income枠は監視リストと混ざらない別セクション（スマホ/デスクトップ共通のコンパクト表示。
-            逆指値・時間ストップ等のフォローアップが無いため専用テーブルは不要） */}
+            逆指値・時間ストップ等のフォローアップが無いため専用テーブルは不要）。
+            日々の判断に不要なため既定は折りたたみ（2026-07-08 ユーザー要望） */}
         {data.holdings.some((h) => h.thesis_status?.mode === "income") && (
-          <div className="mt-4">
-            <h3
-              className="font-semibold text-slate-500 mb-2 text-sm"
+          <details className="mt-4">
+            <summary
+              className="cursor-pointer select-none text-sm font-semibold text-slate-500"
               title="配当・優待目的の長期保有。逆指値・時間ストップなど出口監視の対象外"
             >
-              🏦 income枠（配当・優待目的｜出口監視対象外）
-            </h3>
-            <div className="rounded-lg border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+              🏦 income枠（{data.holdings.filter((h) => h.thesis_status?.mode === "income").length}銘柄
+              ・出口監視対象外）
+            </summary>
+            <div className="mt-2 rounded-lg border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
               {data.holdings.filter((h) => h.thesis_status?.mode === "income").map((h) => {
                 const isReported = reported.has(h.code);
                 const pl = h.pl_pct;
@@ -531,7 +533,7 @@ export default function ExitMonitor() {
                 );
               })}
             </div>
-          </div>
+          </details>
         )}
       </div>
 
