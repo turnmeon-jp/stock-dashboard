@@ -364,7 +364,7 @@ export default function EntryFunnel() {
 
       <p className="mt-3 text-xs text-slate-400">
         エントリーは裁量（チャートを自分の目で確認）。約定したら exit_monitor へ登録し、損切・トレールは機械に従う。
-        結果は勝ち負けにかかわらず検証台帳・ポストモーテムへ。
+        結果は勝ち負けにかかわらず検証台帳・トレード振り返りへ。
       </p>
     </div>
   );

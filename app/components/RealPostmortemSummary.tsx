@@ -36,7 +36,7 @@ export default function RealPostmortemSummary() {
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      <h3 className="font-semibold text-slate-700 mb-2 text-sm">実弾ポストモーテムサマリ</h3>
+      <h3 className="font-semibold text-slate-700 mb-2 text-sm">実弾トレードの振り返り（決済ごとの自己採点）</h3>
 
       {!s || s.n === 0 ? (
         <p className="text-sm text-slate-400">

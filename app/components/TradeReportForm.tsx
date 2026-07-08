@@ -34,7 +34,7 @@ export default function TradeReportForm({
 
   const submit = async () => {
     if (!reason.trim()) {
-      setResult({ ok: false, text: "理由は必須です（なぜ売る/買うか。ポストモーテムの原料になります）" });
+      setResult({ ok: false, text: "理由は必須です（なぜ売る/買うか。トレード振り返りの材料になります）" });
       return;
     }
     setBusy(true);

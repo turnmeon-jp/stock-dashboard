@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   if (typeof price !== "number" || !Number.isFinite(price) || price <= 0 || price > 10_000_000) {
     return Response.json({ error: "価格が不正です" }, { status: 400 });
   }
-  // 理由は必須（ポストモーテムの原料。CLIと同じ制約）。制御文字は空白に潰す。
+  // 理由は必須（トレード振り返りの材料。CLIと同じ制約）。制御文字は空白に潰す。
   const reason = (body.reason ?? "").replace(/[\x00-\x1f\x7f]/g, " ").trim();
   if (!reason || reason.length > 200) {
     return Response.json({ error: "理由は必須です（200字以内）" }, { status: 400 });

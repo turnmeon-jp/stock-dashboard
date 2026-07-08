@@ -458,7 +458,7 @@ export interface Position {
   currentPrice: number | null; // 現在値（手入力）
 }
 
-// 実弾ポストモーテム（output/real_postmortem.json）。逆解析の基準値（勝率21%・利小損大）と比較する趣旨。
+// 実弾トレードの振り返り＝旧称ポストモーテム（output/real_postmortem.json）。逆解析の基準値（勝率21%・利小損大）と比較する趣旨。
 export interface RealPostmortemTrade {
   code: string | null;
   name: string | null;
