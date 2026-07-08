@@ -17,10 +17,13 @@ body {
   color: var(--foreground);
 }
 
-/* スマホで横スクロールを防ぐ基本設定 */
+/* スマホで横スクロールを防ぐ基本設定。
+   hidden ではなく clip を使う: overflow-x: hidden は body をスクロールコンテナ化して
+   子孫の position: sticky を無効にする（タブバー固定が スマホだけ効かない実害 2026-07-09）。
+   clip ははみ出しを切るだけでスクロールコンテナを作らない（iOS Safari 16+ 対応） */
 @media (max-width: 640px) {
   body {
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 }
 
