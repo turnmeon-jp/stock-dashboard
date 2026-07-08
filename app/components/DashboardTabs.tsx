@@ -107,7 +107,12 @@ export default function DashboardTabs({
       <ActionQueue onNavigate={navigateFromActionQueue} />
       {/* 全タブ共通: ウォッチ+厳選+保有銘柄の開示アラート/決算予定（見逃し防止の安全網） */}
       <DisclosureBanner />
-      <nav ref={navRef} className="flex border-b border-slate-200 mb-4 sm:mb-5 overflow-x-auto scrollbar-hide">
+      {/* タブバーは画面トップに固定（2026-07-09 ユーザー要望）: スクロール中もタブ移動できる。
+          sticky は overflow を持つ祖先があると効かないため、このnavより外側にoverflowを足さないこと */}
+      <nav
+        ref={navRef}
+        className="sticky top-0 z-40 flex border-b border-slate-200 mb-4 sm:mb-5 overflow-x-auto scrollbar-hide bg-white/95 backdrop-blur"
+      >
         {TAB_DEFS.map(({ key, label }) => (
           <button key={key} className={tabClass(key)} onClick={() => switchTab(key)}>
             {label}
