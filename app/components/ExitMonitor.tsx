@@ -16,6 +16,40 @@ function actionTone(action: string): string {
 // 末尾0を除いた東証4桁表示（数値コードのみ）
 const short = (code: string) => code.replace(/0$/, "");
 
+// 折りたたみ時の「アクション要約バッジ」用。絵文字とその意味（title属性）
+const BADGE_HINTS: Record<string, string> = {
+  "🔴": "損切り・防衛線割れの検討",
+  "🟡": "撤収検討",
+  "🟢": "過熱・利確目安",
+  "🏦": "income枠（配当・優待目的、出口監視対象外）",
+  "⏸": "有効テーゼ保有中",
+  "🧨": "テーゼ反証・破綻",
+  "💰": "部分利確検討",
+  "⚠️": "規律逸脱：前回逆指値を割れたまま保有継続",
+  "🟥": "時間ストップ：売却候補",
+  "🟨": "時間ストップ：停滞予告",
+  "🟠": "テーゼ弱含み（再点検で懸念）",
+  "🔼": "買い増し候補（利乗せ条件成立）",
+};
+const ACTION_TEXT_EMOJI = ["🔴", "🟡", "🟢", "🏦", "⏸", "🧨", "💰"];
+
+// 保有1件の状態を絵文字だけで要約（折りたたみ時のヘッダに表示）。
+// action文言中の絵文字＋各フォローアップ項目のフラグから重複なく抽出する。
+function actionBadges(h: ExitHolding): string[] {
+  const set = new Set<string>();
+  const action = h.action ?? "";
+  for (const e of ACTION_TEXT_EMOJI) {
+    if (action.includes(e)) set.add(e);
+  }
+  if (h.stop_breach) set.add("⚠️");
+  if (h.time_stop?.flag === "sell_candidate") set.add("🟥");
+  else if (h.time_stop?.flag === "warn") set.add("🟨");
+  if (h.thesis_review?.verdict === "broken") set.add("🧨");
+  else if (h.thesis_review?.verdict === "weakened") set.add("🟠");
+  if (h.add_on?.eligible) set.add("🔼");
+  return [...set];
+}
+
 // thesis_review の verdict → バッジ絵文字・色調
 function thesisReviewTone(verdict: string): { mark: string; cls: string } {
   if (verdict === "broken") return { mark: "🧨", cls: "bg-rose-100 text-rose-800" };
@@ -83,12 +117,135 @@ function followupRows(h: ExitHolding) {
   return rows;
 }
 
+/* ---- スマホ用カード（保有銘柄） ---- */
+function HoldingCard({
+  h,
+  isOpen,
+  onToggle,
+  reportOpen,
+  isReported,
+  onReportToggle,
+  onReported,
+}: {
+  h: ExitHolding;
+  isOpen: boolean;
+  onToggle: () => void;
+  reportOpen: boolean;
+  isReported: boolean;
+  onReportToggle: () => void;
+  onReported: () => void;
+}) {
+  const badges = actionBadges(h);
+  const plTone = (h.pl_pct ?? 0) > 0 ? "text-emerald-600" : (h.pl_pct ?? 0) < 0 ? "text-rose-600" : "text-slate-500";
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+      {/* カードヘッダ（タップで開閉）: 銘柄名・含み損益%・アクション要約バッジのみ */}
+      <div className="flex items-center gap-2 px-3 py-2.5 cursor-pointer" onClick={onToggle}>
+        <div className="min-w-0 flex-1">
+          <span className="font-mono text-xs text-slate-500">{short(h.code)}</span>{" "}
+          <span className="font-medium text-sm text-slate-800">{h.name}</span>
+          {h.theme === "AI" && <span className="ml-1 text-[10px] text-blue-500">AI</span>}
+        </div>
+        <span className={`shrink-0 font-mono text-sm font-semibold ${plTone}`}>
+          {h.pl_pct !== undefined ? `${h.pl_pct > 0 ? "+" : ""}${h.pl_pct}%` : "-"}
+        </span>
+        <span className="flex shrink-0 items-center gap-0.5 text-sm">
+          {badges.length === 0 ? (
+            <span className="text-[10px] text-slate-300">-</span>
+          ) : (
+            badges.map((b) => (
+              <span key={b} title={BADGE_HINTS[b]} className="cursor-help">
+                {b}
+              </span>
+            ))
+          )}
+        </span>
+        <span className={`shrink-0 text-[10px] transition-transform ${isOpen ? "rotate-180" : ""}`}>▼</span>
+      </div>
+
+      {/* 展開部: 数値・推奨全文・テーゼ・イベント・売却報告 */}
+      {isOpen && (
+        <div className="space-y-2 border-t border-slate-100 px-3 pb-3 pt-2 text-xs">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+            <div>
+              <span className="text-slate-400">株数</span>{" "}
+              <span className="font-mono">{h.shares}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">取得</span>{" "}
+              <span className="font-mono">{h.cost}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">現値</span>{" "}
+              <span className="font-mono">{h.cur ?? "-"}</span>
+            </div>
+            <div>
+              <span className="text-slate-400">逆指値</span>{" "}
+              <span className="font-mono text-rose-600">{h.stop_level ?? "-"}</span>
+            </div>
+          </div>
+
+          <p className={`rounded px-2 py-1.5 ${actionTone(h.action ?? "")}`}>{h.action ?? h.error ?? "-"}</p>
+
+          <p className={`rounded px-2 py-1 ${h.entry_reason ? "text-slate-600" : "italic text-slate-300"}`}>
+            📝 {h.entry_reason || "エントリー理由未記録"}
+          </p>
+
+          {followupRows(h).map((fr) => (
+            <p key={fr.key} className={`rounded px-2 py-1.5 ${fr.cls}`}>
+              {fr.content}
+            </p>
+          ))}
+
+          {h.add_on?.eligible && (
+            <p className="rounded bg-sky-50 px-2 py-1.5 text-sky-700">
+              🔼買い増し: 指値~{h.add_on.limit}(SMA25)・+{h.add_on.add_shares}株・混合建値{h.add_on.blended_cost}
+              ・逆指値{h.add_on.stop}維持（フリーロール条件成立）
+            </p>
+          )}
+
+          <div>
+            {isReported ? (
+              <span className="text-[11px] text-emerald-600">✔ 報告済</span>
+            ) : (
+              <button
+                onClick={onReportToggle}
+                className={`rounded border px-2 py-1 text-xs font-medium ${
+                  reportOpen
+                    ? "border-slate-300 bg-slate-100 text-slate-600"
+                    : "border-rose-300 text-rose-600 hover:bg-rose-50"
+                }`}
+              >
+                {reportOpen ? "閉じる" : "売却報告"}
+              </button>
+            )}
+          </div>
+
+          {reportOpen && !isReported && (
+            <TradeReportForm
+              kind="close"
+              code={h.code}
+              name={h.name}
+              defaultShares={h.shares}
+              defaultPrice={h.cur}
+              onSuccess={onReported}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ExitMonitor() {
   const [data, setData] = useState<ExitMonitorData | null>(null);
   const [loading, setLoading] = useState(true);
   // 売却報告フォームを開いている銘柄コード（同時に開くのは1つ）と、報告済みコード
   const [reportOpen, setReportOpen] = useState<string | null>(null);
   const [reported, setReported] = useState<Set<string>>(new Set());
+  // スマホカードの開閉銘柄コード（同時に開くのは1つ。デスクトップ表は従来どおり常時展開）
+  const [openHolding, setOpenHolding] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/exit-monitor")
@@ -170,7 +327,29 @@ export default function ExitMonitor() {
       {/* 保有銘柄の出口アクション */}
       <div>
         <h3 className="font-semibold text-slate-700 mb-2 text-sm">保有銘柄の出口アクション</h3>
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+
+        {/* スマホ: カード形式（銘柄・含み損益%・アクション要約バッジのみ。タップで詳細展開） */}
+        <div className="md:hidden space-y-2">
+          {data.holdings.map((h) => {
+            const isReported = reported.has(h.code);
+            const isOpen = openHolding === h.code;
+            return (
+              <HoldingCard
+                key={h.code}
+                h={h}
+                isOpen={isOpen}
+                onToggle={() => setOpenHolding(isOpen ? null : h.code)}
+                reportOpen={reportOpen === h.code}
+                isReported={isReported}
+                onReportToggle={() => setReportOpen(reportOpen === h.code ? null : h.code)}
+                onReported={() => setReported((prev) => new Set(prev).add(h.code))}
+              />
+            );
+          })}
+        </div>
+
+        {/* デスクトップ: テーブル形式（従来どおり常時展開） */}
+        <div className="hidden md:block overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-100 text-slate-600 text-left">

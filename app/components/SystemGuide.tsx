@@ -13,8 +13,9 @@ export default function SystemGuide() {
       </section>
 
       {/* ---- バックテスト結果 ---- */}
-      <section className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-        <h2 className="mb-3 text-base font-bold text-emerald-900">バックテスト結果</h2>
+      <details className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-emerald-900">バックテスト結果</summary>
+        <div className="mt-3">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             { label: "全銘柄E[R]", value: "+16.2%", note: "全候補銘柄の平均期待値" },
@@ -33,12 +34,13 @@ export default function SystemGuide() {
           ※ E[R] は保有240日後の期待リターン（上位1%除外済み）。
           優位性は上位1%の外れ値に依存しているため集中投資は危険。N=50の分散が推奨。
         </p>
-      </section>
+        </div>
+      </details>
 
       {/* ---- 銘柄抽出ロジック ---- */}
-      <section>
-        <h2 className="mb-3 text-base font-bold text-slate-900">銘柄抽出ロジック（3条件のAND）</h2>
-        <div className="space-y-3">
+      <details>
+        <summary className="cursor-pointer select-none text-base font-bold text-slate-900">銘柄抽出ロジック（3条件のAND）</summary>
+        <div className="mt-3 space-y-3">
 
           <div className="rounded-lg border border-slate-200 bg-white p-3">
             <p className="font-semibold text-slate-700">① 中型流動性フィルター</p>
@@ -69,12 +71,12 @@ export default function SystemGuide() {
             </p>
           </div>
         </div>
-      </section>
+      </details>
 
       {/* ---- レジームフィルター ---- */}
-      <section className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-        <h2 className="mb-2 text-base font-bold text-blue-900">レジームフィルター（市場環境判定・2階建て）</h2>
-        <p className="text-slate-700 leading-relaxed mb-3">
+      <details className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-blue-900">レジームフィルター（市場環境判定・2階建て）</summary>
+        <p className="text-slate-700 leading-relaxed mb-3 mt-2">
           大型株の地合い（Layer0-A）と グロース市場の地合い（Layer0-B）を独立に計算し、
           <span className="font-semibold">より保守的な方を最終レジームとして採用</span>します。
           どちらか一方でも崩れていれば新規エントリーを抑制します。
@@ -104,12 +106,12 @@ export default function SystemGuide() {
             </div>
           ))}
         </div>
-      </section>
+      </details>
 
       {/* ---- 注文計画 ---- */}
-      <section>
-        <h2 className="mb-3 text-base font-bold text-slate-900">注文計画の計算方法（R=1%ルール）</h2>
-        <p className="text-slate-600 mb-3 leading-relaxed">
+      <details>
+        <summary className="cursor-pointer select-none text-base font-bold text-slate-900">注文計画の計算方法（R=1%ルール）</summary>
+        <p className="text-slate-600 mb-3 mt-2 leading-relaxed">
           1トレードのリスク（損切幅×株数）を資産の <span className="font-mono font-semibold">1%（1R = 約3万円）</span> に固定します。
           これにより10連敗しても資産は10%減にとどまります。
           レジームが neutral のときはサイズを60%に縮小（0.6R/トレード）します。
@@ -124,13 +126,13 @@ export default function SystemGuide() {
           ※ 実際の注文はIFDOCO（指値エントリー → 約定後に逆指値損切と指値利確をOCO発注）で
           執行することで、エントリー後の監視を最小化できます。
         </p>
-      </section>
+      </details>
 
       {/* ---- 撤収戦略 ---- */}
-      <section className="rounded-lg border border-violet-200 bg-violet-50 p-4">
-        <h2 className="mb-3 text-base font-bold text-violet-900">撤収戦略（いつ・どう手仕舞うか）</h2>
+      <details className="rounded-lg border border-violet-200 bg-violet-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-violet-900">撤収戦略（いつ・どう手仕舞うか）</summary>
 
-        <p className="text-slate-700 leading-relaxed mb-4">
+        <p className="text-slate-700 leading-relaxed mb-4 mt-2">
           撤収は3層で管理します。①個別銘柄の出口、②ポートフォリオ全体のリスク制御、
           ③相場環境の悪化による活動停止です。
         </p>
@@ -225,12 +227,12 @@ export default function SystemGuide() {
             ※ 既存ポジションはDDストップ後も撤収しません。個別出口ルール（SL・トレイル）に従って自然に手仕舞います。
           </p>
         </div>
-      </section>
+      </details>
 
       {/* ---- IFDOCO説明 ---- */}
-      <section className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-        <h2 className="mb-2 text-base font-bold text-amber-900">IFDOCO注文について</h2>
-        <p className="text-slate-700 leading-relaxed">
+      <details className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-amber-900">IFDOCO注文について</summary>
+        <p className="text-slate-700 leading-relaxed mt-2">
           <span className="font-semibold">IFD</span>（If Done）= 第1注文が約定したら第2注文を発動。
           <span className="font-semibold ml-2">OCO</span>（One Cancels Other）= 2つの注文のどちらかが約定したら
           もう一方をキャンセル。IFDOCOはこの2つを組み合わせた3本足の注文です。
@@ -245,25 +247,25 @@ export default function SystemGuide() {
         <p className="mt-2 text-xs text-slate-500">
           ※ 約定後は一切監視不要。ただし1.5R利確後のトレイル（SMA75追尾）は手動管理が必要です。
         </p>
-      </section>
+      </details>
 
       {/* ---- ウォッチ登録 ---- */}
-      <section className="rounded-lg border border-teal-200 bg-teal-50 p-4">
-        <h2 className="mb-2 text-base font-bold text-teal-900">ウォッチ登録</h2>
-        <p className="text-slate-700 leading-relaxed">
+      <details className="rounded-lg border border-teal-200 bg-teal-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-teal-900">ウォッチ登録</summary>
+        <p className="text-slate-700 leading-relaxed mt-2">
           「発掘」「気になる銘柄」タブの銘柄カードにある<span className="font-semibold">「ウォッチに追加」</span>ボタンから
           登録すると、「ウォッチ」タブで継続監視できます。手動で追加した銘柄には
           <span className="font-semibold">「手動」バッジ</span>が付き、いつでも削除できます。
           登録銘柄の価格・シグナルは日次バッチで自動更新されます。
         </p>
-      </section>
+      </details>
 
       {/* ---- 信用残の需給タグ ---- */}
-      <section className="rounded-lg border border-cyan-200 bg-cyan-50 p-4">
-        <h2 className="mb-2 text-base font-bold text-cyan-900">
+      <details className="rounded-lg border border-cyan-200 bg-cyan-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-cyan-900">
           需給タグ（<span className="font-mono">需給◎</span> / <span className="font-mono">需給重</span>）
-        </h2>
-        <p className="text-slate-700 leading-relaxed">
+        </summary>
+        <p className="text-slate-700 leading-relaxed mt-2">
           候補・ウォッチの銘柄名の隣に付く信用残タグです。10年分の edge_aligned トレードを
           <span className="font-semibold">信用倍率（買い残÷売り残）</span>と
           <span className="font-semibold">買い残の対出来高比（買い残÷20日平均出来高）</span>で層別すると、
@@ -282,13 +284,13 @@ export default function SystemGuide() {
           あくまで参考情報として表示しつつ、候補フォワード検証台帳（candidate_ledger）で
           継続的に成績を測定しています。
         </p>
-      </section>
+      </details>
 
       {/* ---- アクティビスト大量保有検知 ---- */}
-      <section className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 p-4">
-        <h2 className="mb-2 text-base font-bold text-fuchsia-900">
+      <details className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-fuchsia-900">
           アクティビスト大量保有検知（<span className="font-mono">🎯大量保有</span>バッジ）
-        </h2>
+        </summary>
         <p className="text-slate-700 leading-relaxed">
           既知アクティビスト（村上系・オアシス・エフィッシモ等）による新規5%大量保有報告（EDINET）を
           日次で検知するタグです。イベントスタディで発行体株の+60営業日超過リターンが
@@ -304,12 +306,12 @@ export default function SystemGuide() {
           捉えている可能性も残ります。検出後の値動きは候補フォワード検証台帳
           （candidate_ledger system=lvh_activist）で継続測定しています。
         </p>
-      </section>
+      </details>
 
       {/* ---- 投資ドシエ ---- */}
-      <section className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
-        <h2 className="mb-2 text-base font-bold text-indigo-900">投資ドシエ（深掘り調査）</h2>
-        <p className="text-slate-700 leading-relaxed">
+      <details className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-indigo-900">投資ドシエ（深掘り調査）</summary>
+        <p className="text-slate-700 leading-relaxed mt-2">
           「ウォッチ」「気になる銘柄」タブのカードから、Opus 4.8 がEDINET有価証券報告書とWeb一次情報を調査し
           投資ドシエを生成します。判定は
           <span className="font-semibold">「落選」「重大懸念」「懸念あり・監視」「落選事由なし」</span>
@@ -317,12 +319,12 @@ export default function SystemGuide() {
           銘柄選定は機械スクリーナ、エントリー/出口水準（ウォッチ・出口監視の計算値）は機械が担い、
           LLMは判定に関与しません。日次バッチでウォッチ銘柄のうち未生成分を上限2件/日で自動生成します。
         </p>
-      </section>
+      </details>
 
       {/* ---- 用語ミニ辞典 ---- */}
-      <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <h2 className="mb-3 text-base font-bold text-slate-900">用語ミニ辞典</h2>
-        <dl className="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2 text-xs">
+      <details className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <summary className="cursor-pointer select-none text-base font-bold text-slate-900">用語ミニ辞典</summary>
+        <dl className="mt-3 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2 text-xs">
           {[
             ["テーゼ", "持ち続けてよい理由（前提）。崩れたら手放す。"],
             ["反証条件（falsifier）", "前提が間違いだったと判断するチェック項目。"],
@@ -354,7 +356,7 @@ export default function SystemGuide() {
             </div>
           ))}
         </dl>
-      </section>
+      </details>
 
       {/* ---- 注意事項 ---- */}
       <p className="text-xs text-slate-400 leading-relaxed border-t border-slate-200 pt-4">

@@ -50,19 +50,23 @@ function EntryCard({
   dossier,
   dossierListReady,
   muted,
+  isOpen,
+  onToggle,
 }: {
   e: FunnelEntry;
   dossier?: DossierSummary;
   dossierListReady: boolean;
   muted: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
 }) {
   const mb = marginBadge(e);
   const sb = shortBadge(e);
   const db = dossierBadge(dossier?.verdict_call ?? e.dossier_call);
   return (
-    <div className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm ${muted ? "opacity-60" : ""}`}>
-      {/* ヘッダ: 銘柄・補助タグ・ドシエ判定 */}
-      <div className="flex items-start justify-between gap-2">
+    <div className={`rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden ${muted ? "opacity-60" : ""}`}>
+      {/* ヘッダ（タップで開閉）: 銘柄・補助タグ・ドシエ判定のみ。他は展開後 */}
+      <div className="flex items-start justify-between gap-2 p-3 cursor-pointer" onClick={onToggle}>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold text-slate-800">{e.name}</span>
@@ -118,58 +122,65 @@ function EntryCard({
             {e.setup_type ? ` · ${e.setup_type}` : ""}
           </div>
         </div>
-        <span title={db.title} className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold cursor-help ${db.tone}`}>
-          {db.label}
-        </span>
-      </div>
-
-      {/* 現況・成長 */}
-      <div className="mt-2 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
-        <Metric label="RSI14" value={e.rsi14 != null ? `${e.rsi14}` : "-"} hint="買われすぎ・売られすぎの目安（14日）" />
-        <Metric
-          label="SMA25乖離"
-          hint="25日移動平均線からの離れ具合。マイナス（下）＝押し目候補"
-          value={e.dist_sma25_pct != null ? `${e.dist_sma25_pct > 0 ? "+" : ""}${e.dist_sma25_pct}%` : "-"}
-        />
-        <Metric label="成長スコア" value={e.growth_score != null ? `${e.growth_score}` : "-"} />
-        <Metric
-          label="売上YoY"
-          value={e.growth_rev_yoy != null ? `${e.growth_rev_yoy > 0 ? "+" : ""}${Math.round(e.growth_rev_yoy * 100)}%` : "-"}
-        />
-      </div>
-
-      {/* 注文プラン（IFDOCO）: これが決まっているから入ってよい */}
-      <div className="mt-2 rounded bg-slate-50 p-2">
-        <div className="mb-1 text-[10px] font-semibold text-slate-500">注文プラン（IFDOCO・出口は入る前に確定）</div>
-        <div className="grid grid-cols-3 gap-2">
-          <Metric label="IFD 買い" value={yen(e.trigger_price)} tone="text-blue-700" />
-          <Metric label="OCO 損切" value={yen(e.stop_loss)} tone="text-red-600" />
-          <Metric label="OCO 利確" value={yen(e.tp_first)} tone="text-emerald-700" />
+        <div className="flex shrink-0 items-start gap-1.5">
+          <span title={db.title} className={`rounded px-2 py-0.5 text-[11px] font-semibold cursor-help ${db.tone}`}>
+            {db.label}
+          </span>
+          <span className={`mt-0.5 text-[10px] transition-transform ${isOpen ? "rotate-180" : ""}`}>▼</span>
         </div>
-        <div className="mt-1 text-[11px] text-slate-500">
-          {e.shares != null ? (
-            <>
-              {e.shares.toLocaleString()}株 / 投資 ¥{yen(e.invested)} / リスク ¥{yen(e.risk_yen)}
-              {e.effective_r_pct != null && (
-                <span title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）" className="cursor-help">
-                  （R={e.effective_r_pct}%）
-                </span>
+      </div>
+
+      {isOpen && (
+        <div className="px-3 pb-3">
+          {/* 現況・成長 */}
+          <div className="grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
+            <Metric label="RSI14" value={e.rsi14 != null ? `${e.rsi14}` : "-"} hint="買われすぎ・売られすぎの目安（14日）" />
+            <Metric
+              label="SMA25乖離"
+              hint="25日移動平均線からの離れ具合。マイナス（下）＝押し目候補"
+              value={e.dist_sma25_pct != null ? `${e.dist_sma25_pct > 0 ? "+" : ""}${e.dist_sma25_pct}%` : "-"}
+            />
+            <Metric label="成長スコア" value={e.growth_score != null ? `${e.growth_score}` : "-"} />
+            <Metric
+              label="売上YoY"
+              value={e.growth_rev_yoy != null ? `${e.growth_rev_yoy > 0 ? "+" : ""}${Math.round(e.growth_rev_yoy * 100)}%` : "-"}
+            />
+          </div>
+
+          {/* 注文プラン（IFDOCO）: これが決まっているから入ってよい */}
+          <div className="mt-2 rounded bg-slate-50 p-2">
+            <div className="mb-1 text-[10px] font-semibold text-slate-500">注文プラン（IFDOCO・出口は入る前に確定）</div>
+            <div className="grid grid-cols-3 gap-2">
+              <Metric label="IFD 買い" value={yen(e.trigger_price)} tone="text-blue-700" />
+              <Metric label="OCO 損切" value={yen(e.stop_loss)} tone="text-red-600" />
+              <Metric label="OCO 利確" value={yen(e.tp_first)} tone="text-emerald-700" />
+            </div>
+            <div className="mt-1 text-[11px] text-slate-500">
+              {e.shares != null ? (
+                <>
+                  {e.shares.toLocaleString()}株 / 投資 ¥{yen(e.invested)} / リスク ¥{yen(e.risk_yen)}
+                  {e.effective_r_pct != null && (
+                    <span title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）" className="cursor-help">
+                      （R={e.effective_r_pct}%）
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-amber-600">サイズ不能</span>
               )}
-            </>
-          ) : (
-            <span className="text-amber-600">サイズ不能</span>
-          )}
+            </div>
+            {e.trail_note && <div className="mt-0.5 text-[10px] text-slate-400">{e.trail_note}</div>}
+          </div>
+
+          <div className="mt-2 flex items-center justify-end">
+            <Link href={`/stock/${e.code}`} className="text-xs text-blue-600 hover:underline">
+              チャート →
+            </Link>
+          </div>
+
+          <DossierPanel code={e.code} initial={dossier} listReady={dossierListReady} />
         </div>
-        {e.trail_note && <div className="mt-0.5 text-[10px] text-slate-400">{e.trail_note}</div>}
-      </div>
-
-      <div className="mt-2 flex items-center justify-end">
-        <Link href={`/stock/${e.code}`} className="text-xs text-blue-600 hover:underline">
-          チャート →
-        </Link>
-      </div>
-
-      <DossierPanel code={e.code} initial={dossier} listReady={dossierListReady} />
+      )}
     </div>
   );
 }
@@ -179,6 +190,8 @@ export default function EntryFunnel() {
   const [loading, setLoading] = useState(true);
   const [dossierMap, setDossierMap] = useState<Map<string, DossierSummary>>(new Map());
   const [dossierListReady, setDossierListReady] = useState(false);
+  // 展開中の銘柄コード（同時に開くのは1つ）
+  const [openCode, setOpenCode] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/entry-funnel")
@@ -298,6 +311,8 @@ export default function EntryFunnel() {
               dossier={dossierMap.get(e.code)}
               dossierListReady={dossierListReady}
               muted={isStop}
+              isOpen={openCode === e.code}
+              onToggle={() => setOpenCode(openCode === e.code ? null : e.code)}
             />
           ))}
         </div>

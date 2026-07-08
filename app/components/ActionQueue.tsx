@@ -8,6 +8,11 @@ const short = (code: string) => code.replace(/0$/, "");
 // priority 1-2 は緊急度が高い扱い（赤系強調）
 const URGENT_PRIORITY = 2;
 
+// スマホでは既定でこの件数だけ表示し、残りは「もっと見る」で展開（一覧性と縦スクロール量のバランス）
+const INITIAL_VISIBLE = 6;
+// これを超えるtextはスマホで2行に折りたたみ、「全文」タップで展開（目安の文字数）
+const LONG_TEXT_THRESHOLD = 42;
+
 // kind（pipeline/action_queue.py が付与）→ アイコンの意味（一言・title属性用）。
 // kind一覧はバックエンド側の種別と1:1で対応（icon自体はレジーム変化等で複数パターンあるため kind をキーにする）。
 const KIND_HINTS: Record<string, string> = {
@@ -27,6 +32,10 @@ const KIND_HINTS: Record<string, string> = {
 export default function ActionQueue({ onNavigate }: { onNavigate: (tab: string) => void }) {
   const [data, setData] = useState<ActionQueueResponse | null>(null);
   const [open, setOpen] = useState(true);
+  // 個々の行の全文展開（スマホのみ意味を持つ。indexキー管理でシンプルに）
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  // 「もっと見る」展開状態
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     fetch("/api/action-queue")
@@ -38,6 +47,17 @@ export default function ActionQueue({ onNavigate }: { onNavigate: (tab: string) 
   if (!data || !data.exists) return null;
 
   const items: ActionQueueItem[] = data.items;
+  const visibleItems = showAll ? items : items.slice(0, INITIAL_VISIBLE);
+  const hiddenCount = items.length - visibleItems.length;
+
+  const toggleExpand = (i: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  };
 
   return (
     <details
@@ -55,33 +75,66 @@ export default function ActionQueue({ onNavigate }: { onNavigate: (tab: string) 
         {items.length === 0 ? (
           <p className="text-xs text-slate-400">アクションなし</p>
         ) : (
-          <ul className="space-y-1.5">
-            {items.map((it, i) => {
-              const urgent = it.priority <= URGENT_PRIORITY;
-              return (
-                <li key={`${it.code}-${it.kind}-${i}`}>
-                  <button
-                    onClick={() => onNavigate(it.tab)}
-                    className={`flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left text-xs sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:text-sm ${
-                      urgent
-                        ? "bg-rose-50 text-rose-800 hover:bg-rose-100"
-                        : "bg-slate-50 text-slate-700 hover:bg-slate-100"
-                    }`}
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <span title={KIND_HINTS[it.kind] ?? undefined} className="cursor-help">
-                        {it.icon}
+          <>
+            <ul className="space-y-1.5">
+              {visibleItems.map((it, i) => {
+                const urgent = it.priority <= URGENT_PRIORITY;
+                const isExpanded = expanded.has(i);
+                const isLong = it.text.length > LONG_TEXT_THRESHOLD;
+                return (
+                  <li key={`${it.code}-${it.kind}-${i}`}>
+                    {/* button-in-buttonを避けるため div+role=button（全文トグルは内側の実ボタン） */}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onNavigate(it.tab)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") onNavigate(it.tab);
+                      }}
+                      className={`flex w-full cursor-pointer flex-col gap-0.5 rounded px-2 py-1.5 text-left text-xs sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:text-sm ${
+                        urgent
+                          ? "bg-rose-50 text-rose-800 hover:bg-rose-100"
+                          : "bg-slate-50 text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <span title={KIND_HINTS[it.kind] ?? undefined} className="cursor-help">
+                          {it.icon}
+                        </span>
+                        <span className={urgent ? "font-semibold" : "font-medium"}>{it.name}</span>
+                        <span className="font-mono text-[10px] text-slate-400">{short(it.code)}</span>
                       </span>
-                      <span className={urgent ? "font-semibold" : "font-medium"}>{it.name}</span>
-                      <span className="font-mono text-[10px] text-slate-400">{short(it.code)}</span>
-                    </span>
-                    <span className="min-w-0 flex-1 sm:truncate">{it.text}</span>
-                    {it.date && <span className="text-[10px] text-slate-400">{it.date}</span>}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+                      <span
+                        className={`min-w-0 flex-1 sm:truncate ${!isExpanded ? "line-clamp-2 sm:line-clamp-none" : ""}`}
+                      >
+                        {it.text}
+                      </span>
+                      {it.date && <span className="text-[10px] text-slate-400">{it.date}</span>}
+                      {isLong && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleExpand(i);
+                          }}
+                          className="shrink-0 self-start text-[10px] font-medium text-blue-600 underline sm:hidden"
+                        >
+                          {isExpanded ? "閉じる" : "全文"}
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {items.length > INITIAL_VISIBLE && (
+              <button
+                onClick={() => setShowAll((v) => !v)}
+                className="mt-2 w-full rounded border border-slate-200 py-1.5 text-center text-xs font-medium text-slate-500 hover:bg-slate-50"
+              >
+                {showAll ? "折りたたむ" : `もっと見る（+${hiddenCount}件）`}
+              </button>
+            )}
+          </>
         )}
       </div>
     </details>

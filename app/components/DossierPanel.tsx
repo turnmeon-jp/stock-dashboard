@@ -51,6 +51,28 @@ function verdictTitle(call?: string | null): string {
   }
 }
 
+// ドシエ内の各セクションを個別に折りたたむ（summary/verdictは常時表示のため対象外）。
+// 既存の details/summary アコーディオン（DossierPanel自体・ActionQueue）と同じ見た目・操作感を再利用。
+function Section({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="rounded border border-slate-200 bg-white">
+      <summary className="cursor-pointer select-none px-2 py-1.5 font-semibold text-slate-500">
+        {title}
+        {hint && <span className="ml-1 text-[10px] font-normal text-slate-400">{hint}</span>}
+      </summary>
+      <div className="space-y-1.5 border-t border-slate-100 px-2 py-1.5">{children}</div>
+    </details>
+  );
+}
+
 function SeverityBadge({ severity }: { severity: string }) {
   const hard = severity === "hard";
   const tone = hard ? "bg-red-100 text-red-700" : "bg-amber-50 text-amber-700";
@@ -371,33 +393,26 @@ export default function DossierPanel({
             )}
 
             {data.disqualifiers && data.disqualifiers.length > 0 && (
-              <div>
-                <div className="mb-1 font-semibold text-slate-500">
-                  落選事由候補（{data.disqualifiers.length}件）
-                  <span className="ml-1 text-[10px] font-normal text-slate-400">＝買ってはいけない理由の候補</span>
-                </div>
-                <div className="space-y-1.5">
-                  {data.disqualifiers.map((dq, i) => (
-                    <div key={i} className="rounded border border-slate-200 bg-white px-2 py-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-medium text-slate-700">{dq.type}</span>
-                        <SeverityBadge severity={dq.severity} />
-                      </div>
-                      <div className="mt-0.5 text-slate-600">{dq.detail}</div>
-                      {dq.url && (
-                        <div className="mt-0.5">
-                          <SourceLink href={dq.url}>出典</SourceLink>
-                        </div>
-                      )}
+              <Section title={`落選事由候補（${data.disqualifiers.length}件）`} hint="＝買ってはいけない理由の候補">
+                {data.disqualifiers.map((dq, i) => (
+                  <div key={i} className="rounded border border-slate-200 bg-white px-2 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-slate-700">{dq.type}</span>
+                      <SeverityBadge severity={dq.severity} />
                     </div>
-                  ))}
-                </div>
-              </div>
+                    <div className="mt-0.5 text-slate-600">{dq.detail}</div>
+                    {dq.url && (
+                      <div className="mt-0.5">
+                        <SourceLink href={dq.url}>出典</SourceLink>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </Section>
             )}
 
             {data.edinet_read && (
-              <div className="rounded border border-slate-200 bg-white px-2 py-1.5 space-y-1">
-                <div className="font-semibold text-slate-500">EDINET有報の読み</div>
+              <Section title="EDINET有報の読み">
                 {data.edinet_read.moat && (
                   <div><span className="text-slate-400">堀: </span>{data.edinet_read.moat}</div>
                 )}
@@ -410,12 +425,11 @@ export default function DossierPanel({
                 {data.edinet_read.risks && (
                   <div><span className="text-slate-400">リスク: </span>{data.edinet_read.risks}</div>
                 )}
-              </div>
+              </Section>
             )}
 
             {data.financial_read && (data.financial_read.text || (data.financial_read.notes?.length ?? 0) > 0) && (
-              <div className="rounded border border-slate-200 bg-white px-2 py-1.5 space-y-1">
-                <div className="font-semibold text-slate-500">財務の読み</div>
+              <Section title="財務の読み">
                 {data.financial_read.text && <p className="text-slate-700">{data.financial_read.text}</p>}
                 {data.financial_read.notes && data.financial_read.notes.length > 0 && (
                   <ul className="ml-4 list-disc space-y-0.5 text-slate-500">
@@ -424,15 +438,11 @@ export default function DossierPanel({
                     ))}
                   </ul>
                 )}
-              </div>
+              </Section>
             )}
 
             {data.supply_demand && (data.supply_demand.text || (data.supply_demand.evidence_urls?.length ?? 0) > 0) && (
-              <div className="rounded border border-slate-200 bg-white px-2 py-1.5 space-y-1">
-                <div className="font-semibold text-slate-500">
-                  需給
-                  <span className="ml-1 text-[10px] font-normal text-slate-400">＝買いたい人と売りたい人のバランス</span>
-                </div>
+              <Section title="需給" hint="＝買いたい人と売りたい人のバランス">
                 {data.supply_demand.text && <p className="text-slate-700">{data.supply_demand.text}</p>}
                 {data.supply_demand.evidence_urls && data.supply_demand.evidence_urls.length > 0 && (
                   <div className="flex flex-wrap gap-x-2 gap-y-0.5">
@@ -443,12 +453,11 @@ export default function DossierPanel({
                     ))}
                   </div>
                 )}
-              </div>
+              </Section>
             )}
 
             {data.policy_context && (data.policy_context.text || (data.policy_context.evidence_urls?.length ?? 0) > 0) && (
-              <div className="rounded border border-slate-200 bg-white px-2 py-1.5 space-y-1">
-                <div className="font-semibold text-slate-500">政策文脈（判断材料・エッジの主張ではない）</div>
+              <Section title="政策文脈（判断材料・エッジの主張ではない）">
                 {data.policy_context.text && <p className="text-slate-700">{data.policy_context.text}</p>}
                 {data.policy_context.evidence_urls && data.policy_context.evidence_urls.length > 0 && (
                   <div className="flex flex-wrap gap-x-2 gap-y-0.5">
@@ -459,43 +468,42 @@ export default function DossierPanel({
                     ))}
                   </div>
                 )}
-              </div>
+              </Section>
             )}
 
             {data.web_findings && data.web_findings.length > 0 && (
-              <div>
-                <div className="mb-1 font-semibold text-slate-500">直近材料</div>
-                <div className="space-y-1.5">
-                  {data.web_findings.map((w, i) => (
-                    <div key={i} className="rounded border border-slate-200 bg-white px-2 py-1.5">
-                      <div className="text-slate-700">
-                        {w.date && <span className="text-slate-400">{w.date} </span>}
-                        {w.url ? <SourceLink href={w.url}>{w.title ?? "(記事)"}</SourceLink> : <span className="font-medium">{w.title}</span>}
-                        {w.source && <span className="text-slate-400"> [{w.source}]</span>}
-                      </div>
-                      {w.takeaway && <div className="mt-0.5 text-slate-500">{w.takeaway}</div>}
+              <Section title={`直近材料（${data.web_findings.length}件）`}>
+                {data.web_findings.map((w, i) => (
+                  <div key={i} className="rounded border border-slate-200 bg-white px-2 py-1.5">
+                    <div className="text-slate-700">
+                      {w.date && <span className="text-slate-400">{w.date} </span>}
+                      {w.url ? <SourceLink href={w.url}>{w.title ?? "(記事)"}</SourceLink> : <span className="font-medium">{w.title}</span>}
+                      {w.source && <span className="text-slate-400"> [{w.source}]</span>}
                     </div>
-                  ))}
-                </div>
-              </div>
+                    {w.takeaway && <div className="mt-0.5 text-slate-500">{w.takeaway}</div>}
+                  </div>
+                ))}
+              </Section>
             )}
 
             {data.watch_points && data.watch_points.length > 0 && (
-              <div>
-                <div className="mb-1 font-semibold text-slate-500">今後の監視点</div>
+              <Section title="今後の監視点">
                 <ul className="ml-4 list-disc space-y-0.5 text-slate-600">
                   {data.watch_points.map((w, i) => (
                     <li key={i}>{w}</li>
                   ))}
                 </ul>
-              </div>
+              </Section>
             )}
 
-            {data.thesis_draft && <ThesisDraftSection code={code} draft={data.thesis_draft} />}
+            {data.thesis_draft && (
+              <Section title="📝 テーゼ候補（下書き）">
+                <ThesisDraftSection code={code} draft={data.thesis_draft} />
+              </Section>
+            )}
 
             {data.sources && data.sources.length > 0 && (
-              <div>
-                <div className="mb-1 font-semibold text-slate-500">出典</div>
+              <Section title={`出典（${data.sources.length}件）`}>
                 <ul className="ml-4 list-disc space-y-0.5 text-slate-600">
                   {data.sources.map((s, i) => (
                     <li key={i}>
@@ -504,7 +512,7 @@ export default function DossierPanel({
                     </li>
                   ))}
                 </ul>
-              </div>
+              </Section>
             )}
 
             {data.attached_at && (

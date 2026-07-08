@@ -87,6 +87,12 @@ function ShortBadge({ s }: { s: WatchItem }) {
   );
 }
 
+// 寄成上限=指値+0.5%（執行規約 2026-07-07）。旧JSONは ifd_entry から補完
+function maxOpen(o: WatchItem["order"]): number | null {
+  if (!o) return null;
+  return o.max_open ?? Math.round(o.ifd_entry * 1.005 * 10) / 10;
+}
+
 function Card({
   s,
   onRemove,
@@ -95,6 +101,8 @@ function Card({
   dossierListReady,
   dilutionFlags,
   lvhAlerts,
+  isOpen,
+  onToggle,
 }: {
   s: WatchItem;
   onRemove: (s: WatchItem) => void;
@@ -103,6 +111,8 @@ function Card({
   dossierListReady?: boolean;
   dilutionFlags?: DilutionFlag[] | null;
   lvhAlerts?: LvhAlert[] | null;
+  isOpen: boolean;
+  onToggle: () => void;
 }) {
   const o = s.order;
   const dist = s.dist_to_entry_pct;
@@ -110,11 +120,11 @@ function Card({
   // 取得報告フォームの開閉（報告成功後は開いたまま結果表示。二重送信はフォーム側で防止）
   const [reportOpen, setReportOpen] = useState(false);
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      {/* ヘッダ: コード・銘柄・ステータス */}
-      <div className="flex items-start justify-between gap-2">
+    <div className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden">
+      {/* ヘッダ（タップで開閉）: 銘柄名・ステータス・寄成上限のみ。他は展開後 */}
+      <div className="flex items-start justify-between gap-2 p-3 cursor-pointer" onClick={onToggle}>
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="font-semibold text-slate-800">{s.name}</span>
             <span className="text-xs text-slate-400">{short(s.code)}</span>
             {isManual && (
@@ -129,120 +139,136 @@ function Card({
             <ShortBadge s={s} />
             <ConfluenceBadges edgeAligned={s.edge_aligned} growthPass={s.growth_pass} isDomain={s.is_domain} />
           </div>
+          <div className="mt-1 text-[11px] text-slate-400">
+            <span
+              className="cursor-help"
+              title="寄付（9時最初の値段）での成行買いの上限。これ以下なら買い、超えたら見送り"
+            >
+              寄成上限
+            </span>{" "}
+            <span className="font-mono font-semibold text-blue-700">{yen(maxOpen(o))}</span>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-start gap-1.5">
+          <div className="text-right">
+            <span className={`inline-block rounded border px-2 py-0.5 text-xs font-semibold ${statusTone(s.status)}`}>
+              {s.status}
+            </span>
+            <div className="mt-0.5 text-[10px] text-slate-400">{s.status_detail}</div>
+          </div>
+          <span className={`mt-0.5 text-[10px] transition-transform ${isOpen ? "rotate-180" : ""}`}>▼</span>
+        </div>
+      </div>
+
+      {isOpen && (
+        <div className="px-3 pb-3">
           <div className="text-[11px] text-slate-400">{s.sector}</div>
-        </div>
-        <div className="text-right">
-          <span className={`inline-block rounded border px-2 py-0.5 text-xs font-semibold ${statusTone(s.status)}`}>
-            {s.status}
-          </span>
-          <div className="mt-0.5 text-[10px] text-slate-400">{s.status_detail}</div>
-        </div>
-      </div>
 
-      {/* 品質×成長（なぜウォッチか） */}
-      <div className="mt-2 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
-        <Metric label="道B ROIC" value={s.roic_median != null ? `${s.roic_median}%` : "-"} />
-        <Metric label="売上CAGR" value={s.sales_cagr != null ? `${s.sales_cagr}%` : "-"} />
-        <Metric label="PER" value={s.per != null ? `${s.per}倍` : "-"} />
-        <Metric
-          label="CFO/OP"
-          value={s.cfo_op != null ? `${s.cfo_op}` : "-"}
-          tone={s.cfo_op != null && s.cfo_op < 0.7 ? "text-amber-600" : undefined}
-        />
-      </div>
-
-      {/* エントリータイミング */}
-      <div className="mt-2 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
-        <Metric label="現値" value={yen(s.close)} />
-        <Metric label="SMA25(買場)" value={yen(s.sma25)} />
-        <Metric
-          label="押し目余地"
-          hint="SMA25（25日移動平均線）までの距離。上昇トレンド中の一時的な下げ＝買い場候補"
-          value={dist != null ? `${dist > 0 ? "+" : ""}${dist}%` : "-"}
-          tone={dist != null && dist <= 1 ? "text-emerald-600" : "text-slate-700"}
-        />
-        <Metric label="RSI" hint="買われすぎ・売られすぎの目安（14日）" value={`${s.rsi14}`} />
-      </div>
-
-      {/* IFDOCO 注文設計 */}
-      <div className="mt-2 rounded bg-slate-50 p-2">
-        <div className="mb-1 text-[10px] font-semibold text-slate-500">注文設計（IFDOCO）</div>
-        {o ? (
-          <div className="grid grid-cols-4 gap-2">
-            {/* 寄成上限=指値+0.5%（執行規約 2026-07-07）。旧JSONは ifd_entry から補完 */}
+          {/* 品質×成長（なぜウォッチか） */}
+          <div className="mt-2 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
+            <Metric label="道B ROIC" value={s.roic_median != null ? `${s.roic_median}%` : "-"} />
+            <Metric label="売上CAGR" value={s.sales_cagr != null ? `${s.sales_cagr}%` : "-"} />
+            <Metric label="PER" value={s.per != null ? `${s.per}倍` : "-"} />
             <Metric
-              label="寄成上限（寄り≤で買い）"
-              hint="寄付（9時最初の値段）での成行買いの上限。これ以下なら買い、超えたら見送り"
-              value={yen(o.max_open ?? Math.round(o.ifd_entry * 1.005 * 10) / 10)}
-              tone="text-blue-700"
+              label="CFO/OP"
+              value={s.cfo_op != null ? `${s.cfo_op}` : "-"}
+              tone={s.cfo_op != null && s.cfo_op < 0.7 ? "text-amber-600" : undefined}
             />
-            <Metric label="指値目安" value={yen(o.ifd_entry)} />
-            <Metric label="OCO 損切" value={yen(o.oco_stop)} tone="text-red-600" />
-            <Metric label="OCO 利確" value={yen(o.oco_tp_first)} tone="text-emerald-700" />
           </div>
-        ) : (
-          <div className="text-xs text-slate-400">注文なし</div>
-        )}
-        {o && (
-          <div className="mt-1 text-[11px] text-slate-500">
-            {o.shares != null ? (
-              <>
-                {o.shares.toLocaleString()}株 / 投資 ¥{yen(o.invested)} / リスク ¥{yen(o.risk_yen)}
-                {o.effective_r_pct != null && (
-                  <span title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）" className="cursor-help">
-                    （R={o.effective_r_pct}%）
-                  </span>
-                )}
-              </>
+
+          {/* エントリータイミング */}
+          <div className="mt-2 grid grid-cols-4 gap-2 border-t border-slate-100 pt-2">
+            <Metric label="現値" value={yen(s.close)} />
+            <Metric label="SMA25(買場)" value={yen(s.sma25)} />
+            <Metric
+              label="押し目余地"
+              hint="SMA25（25日移動平均線）までの距離。上昇トレンド中の一時的な下げ＝買い場候補"
+              value={dist != null ? `${dist > 0 ? "+" : ""}${dist}%` : "-"}
+              tone={dist != null && dist <= 1 ? "text-emerald-600" : "text-slate-700"}
+            />
+            <Metric label="RSI" hint="買われすぎ・売られすぎの目安（14日）" value={`${s.rsi14}`} />
+          </div>
+
+          {/* IFDOCO 注文設計 */}
+          <div className="mt-2 rounded bg-slate-50 p-2">
+            <div className="mb-1 text-[10px] font-semibold text-slate-500">注文設計（IFDOCO）</div>
+            {o ? (
+              <div className="grid grid-cols-4 gap-2">
+                <Metric
+                  label="寄成上限（寄り≤で買い）"
+                  hint="寄付（9時最初の値段）での成行買いの上限。これ以下なら買い、超えたら見送り"
+                  value={yen(maxOpen(o))}
+                  tone="text-blue-700"
+                />
+                <Metric label="指値目安" value={yen(o.ifd_entry)} />
+                <Metric label="OCO 損切" value={yen(o.oco_stop)} tone="text-red-600" />
+                <Metric label="OCO 利確" value={yen(o.oco_tp_first)} tone="text-emerald-700" />
+              </div>
             ) : (
-              <span className="text-amber-600">{o.size_note ?? "サイズ不能"}</span>
+              <div className="text-xs text-slate-400">注文なし</div>
             )}
+            {o && (
+              <div className="mt-1 text-[11px] text-slate-500">
+                {o.shares != null ? (
+                  <>
+                    {o.shares.toLocaleString()}株 / 投資 ¥{yen(o.invested)} / リスク ¥{yen(o.risk_yen)}
+                    {o.effective_r_pct != null && (
+                      <span title="R＝1回の取引で許す損失額を1とする単位（例: R=3万円ならR=1.0%は損失3万円）" className="cursor-help">
+                        （R={o.effective_r_pct}%）
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-amber-600">{o.size_note ?? "サイズ不能"}</span>
+                )}
+              </div>
+            )}
+            {o && <div className="mt-0.5 text-[10px] text-slate-400">{o.trail_note}</div>}
           </div>
-        )}
-        {o && <div className="mt-0.5 text-[10px] text-slate-400">{o.trail_note}</div>}
-      </div>
 
-      <div className="mt-2 flex items-center justify-end gap-3">
-        {isManual && (
-          <button
-            onClick={() => {
-              if (confirm(`${s.name}（${short(s.code)}）を手動ウォッチから削除しますか？`)) onRemove(s);
-            }}
-            disabled={removing}
-            className="text-xs text-rose-500 hover:underline disabled:opacity-50"
-          >
-            {removing ? "削除中…" : "削除"}
-          </button>
-        )}
-        <button
-          onClick={() => setReportOpen((v) => !v)}
-          className={`rounded border px-2 py-0.5 text-xs font-medium ${
-            reportOpen
-              ? "border-slate-300 bg-slate-100 text-slate-600"
-              : "border-emerald-300 text-emerald-600 hover:bg-emerald-50"
-          }`}
-          title="実際に買った時の報告（holdings.json 更新＋journal 一次記録）"
-        >
-          {reportOpen ? "閉じる" : "取得報告"}
-        </button>
-        <Link href={`/stock/${s.code}`} className="text-xs text-blue-600 hover:underline">
-          チャート →
-        </Link>
-      </div>
+          <div className="mt-2 flex items-center justify-end gap-3">
+            {isManual && (
+              <button
+                onClick={() => {
+                  if (confirm(`${s.name}（${short(s.code)}）を手動ウォッチから削除しますか？`)) onRemove(s);
+                }}
+                disabled={removing}
+                className="text-xs text-rose-500 hover:underline disabled:opacity-50"
+              >
+                {removing ? "削除中…" : "削除"}
+              </button>
+            )}
+            <button
+              onClick={() => setReportOpen((v) => !v)}
+              className={`rounded border px-2 py-0.5 text-xs font-medium ${
+                reportOpen
+                  ? "border-slate-300 bg-slate-100 text-slate-600"
+                  : "border-emerald-300 text-emerald-600 hover:bg-emerald-50"
+              }`}
+              title="実際に買った時の報告（holdings.json 更新＋journal 一次記録）"
+            >
+              {reportOpen ? "閉じる" : "取得報告"}
+            </button>
+            <Link href={`/stock/${s.code}`} className="text-xs text-blue-600 hover:underline">
+              チャート →
+            </Link>
+          </div>
 
-      {reportOpen && (
-        <div className="mt-2">
-          <TradeReportForm
-            kind="add"
-            code={s.code}
-            name={s.name}
-            defaultShares={o?.shares}
-            defaultPrice={s.close}
-          />
+          {reportOpen && (
+            <div className="mt-2">
+              <TradeReportForm
+                kind="add"
+                code={s.code}
+                name={s.name}
+                defaultShares={o?.shares}
+                defaultPrice={s.close}
+              />
+            </div>
+          )}
+
+          <DossierPanel code={s.code} initial={dossier} listReady={dossierListReady} />
         </div>
       )}
-
-      <DossierPanel code={s.code} initial={dossier} listReady={dossierListReady} />
     </div>
   );
 }
@@ -252,6 +278,8 @@ export default function WatchList() {
   const [loading, setLoading] = useState(true);
   const [removingCode, setRemovingCode] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // 展開中の銘柄コード（同時に開くのは1つ。デスクトップも含め既定は折りたたみ）
+  const [openCode, setOpenCode] = useState<string | null>(null);
   const [dossierMap, setDossierMap] = useState<Map<string, DossierSummary>>(new Map());
   const [dossierListReady, setDossierListReady] = useState(false);
   const [dilutionMap, setDilutionMap] = useState<Record<string, DilutionFlag[]>>({});
@@ -393,6 +421,8 @@ export default function WatchList() {
             dossierListReady={dossierListReady}
             dilutionFlags={dilutionMap[s.code]}
             lvhAlerts={lvhMap.get(s.code)}
+            isOpen={openCode === s.code}
+            onToggle={() => setOpenCode(openCode === s.code ? null : s.code)}
           />
         ))}
       </div>
