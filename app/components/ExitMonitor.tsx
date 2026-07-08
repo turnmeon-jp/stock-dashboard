@@ -324,13 +324,14 @@ export default function ExitMonitor() {
         )}
       </div>
 
-      {/* 保有銘柄の出口アクション */}
+      {/* 保有銘柄の出口アクション。income枠（出口監視対象外）は誤認防止のため下の別
+          セクションへ分離（2026-07-08: 一覧で直上のincome行が下の銘柄の説明に見えた） */}
       <div>
         <h3 className="font-semibold text-slate-700 mb-2 text-sm">保有銘柄の出口アクション</h3>
 
         {/* スマホ: カード形式（銘柄・含み損益%・アクション要約バッジのみ。タップで詳細展開） */}
         <div className="md:hidden space-y-2">
-          {data.holdings.map((h) => {
+          {data.holdings.filter((h) => h.thesis_status?.mode !== "income").map((h) => {
             const isReported = reported.has(h.code);
             const isOpen = openHolding === h.code;
             return (
@@ -365,7 +366,7 @@ export default function ExitMonitor() {
               </tr>
             </thead>
             <tbody>
-              {data.holdings.flatMap((h) => {
+              {data.holdings.filter((h) => h.thesis_status?.mode !== "income").flatMap((h) => {
                 const isReported = reported.has(h.code);
                 const rows = [
                   <tr key={h.code} className="border-t border-slate-200">
@@ -470,6 +471,68 @@ export default function ExitMonitor() {
             </tbody>
           </table>
         </div>
+
+        {/* income枠は監視リストと混ざらない別セクション（スマホ/デスクトップ共通のコンパクト表示。
+            逆指値・時間ストップ等のフォローアップが無いため専用テーブルは不要） */}
+        {data.holdings.some((h) => h.thesis_status?.mode === "income") && (
+          <div className="mt-4">
+            <h3
+              className="font-semibold text-slate-500 mb-2 text-sm"
+              title="配当・優待目的の長期保有。逆指値・時間ストップなど出口監視の対象外"
+            >
+              🏦 income枠（配当・優待目的｜出口監視対象外）
+            </h3>
+            <div className="rounded-lg border border-slate-200 bg-white shadow-sm divide-y divide-slate-100">
+              {data.holdings.filter((h) => h.thesis_status?.mode === "income").map((h) => {
+                const isReported = reported.has(h.code);
+                const pl = h.pl_pct;
+                return (
+                  <div key={h.code} className="px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <span className="font-mono text-xs text-slate-500">{short(h.code)}</span>{" "}
+                        <span className="font-medium">{h.name}</span>
+                        <span className="ml-2 text-xs text-slate-400">{h.shares}株</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3">
+                        <span
+                          className={`font-mono text-xs ${
+                            (pl ?? 0) > 0 ? "text-emerald-600" : (pl ?? 0) < 0 ? "text-rose-600" : "text-slate-500"
+                          }`}
+                        >
+                          {pl !== undefined && pl !== null ? `${pl > 0 ? "+" : ""}${pl}%` : "-"}
+                        </span>
+                        {isReported ? (
+                          <span className="whitespace-nowrap text-[10px] text-emerald-600">✔ 報告済</span>
+                        ) : (
+                          <button
+                            onClick={() => setReportOpen(reportOpen === h.code ? null : h.code)}
+                            className="whitespace-nowrap rounded border border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-500 hover:bg-slate-50"
+                          >
+                            {reportOpen === h.code ? "閉じる" : "売却報告"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-0.5 text-xs text-slate-500">{h.action ?? h.error ?? ""}</div>
+                    {reportOpen === h.code && !isReported && (
+                      <div className="mt-2">
+                        <TradeReportForm
+                          kind="close"
+                          code={h.code}
+                          name={h.name}
+                          defaultShares={h.shares}
+                          defaultPrice={h.cur}
+                          onSuccess={() => setReported((prev) => new Set(prev).add(h.code))}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <p className="text-xs text-slate-400">
