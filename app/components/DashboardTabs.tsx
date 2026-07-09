@@ -41,9 +41,15 @@ function readTabFromURL(): Tab {
 export default function DashboardTabs({
   candidates,
   message,
+  header,
+  regimeBanner,
 }: {
   candidates: Candidate[];
   message: string | null;
+  // タブバーを画面最上部（タイトルより上）に置くため、ヘッダー/レジームバナーは
+  // page.tsx からJSXで受け取りタブバーの直下に描画する（2026-07-09 ユーザー要望）
+  header?: React.ReactNode;
+  regimeBanner?: React.ReactNode;
 }) {
   // SSR は常に "candidates"。クライアントで URL を読んで同期する（hydration mismatch 回避）
   const [tab, setTab] = useState<Tab>("candidates");
@@ -103,15 +109,11 @@ export default function DashboardTabs({
 
   return (
     <div>
-      {/* 全タブ共通・ページ最上部: 今日やるべきことの一覧（バックエンド並行実装中。未生成時は非表示） */}
-      <ActionQueue onNavigate={navigateFromActionQueue} />
-      {/* 全タブ共通: ウォッチ+厳選+保有銘柄の開示アラート/決算予定（見逃し防止の安全網） */}
-      <DisclosureBanner />
-      {/* タブバーは画面トップに固定（2026-07-09 ユーザー要望）: スクロール中もタブ移動できる。
+      {/* タブバーはページ先頭（タイトルより上）かつ画面トップに固定（2026-07-09 ユーザー要望）。
           sticky は overflow を持つ祖先があると効かないため、このnavより外側にoverflowを足さないこと */}
       <nav
         ref={navRef}
-        className="sticky top-0 z-40 flex border-b border-slate-200 mb-4 sm:mb-5 overflow-x-auto scrollbar-hide bg-white/95 backdrop-blur"
+        className="sticky top-0 z-40 flex border-b border-slate-200 overflow-x-auto scrollbar-hide bg-white/95 backdrop-blur"
       >
         {TAB_DEFS.map(({ key, label }) => (
           <button key={key} className={tabClass(key)} onClick={() => switchTab(key)}>
@@ -119,6 +121,14 @@ export default function DashboardTabs({
           </button>
         ))}
       </nav>
+      {/* タイトル等のヘッダー（page.tsx から受領）はタブバーの下 */}
+      {header}
+      {regimeBanner}
+      <div className="mt-3 sm:mt-4" />
+      {/* 全タブ共通: 今日やるべきことの一覧（未生成時は非表示） */}
+      <ActionQueue onNavigate={navigateFromActionQueue} />
+      {/* 全タブ共通: ウォッチ+厳選+保有銘柄の開示アラート/決算予定（見逃し防止の安全網） */}
+      <DisclosureBanner />
 
       {/* lazy-mount: 初回アクティブ化まで DOM に追加しない
           一度マウントされたら display:none で保持（autoSize がゼロ幅を読まない） */}
