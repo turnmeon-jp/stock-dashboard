@@ -7,6 +7,7 @@ import { fetchDossierList, type DossierSummary } from "@/app/lib/dossier";
 import { fetchDilutionFlags, dilutionBadge, type DilutionFlag } from "@/app/lib/dilution";
 import { fetchLvhAlerts, lvhBadge, groupLvhAlertsByCode, type LvhAlert } from "@/app/lib/lvh";
 import { marginBadge, shortBadge } from "@/app/lib/margin";
+import { fetchHeldCodes, HELD_NOTE } from "@/app/lib/held";
 import DossierPanel from "./DossierPanel";
 import TradeReportForm from "./TradeReportForm";
 import { ConfluenceBadges } from "./ConfluenceBadge";
@@ -103,6 +104,7 @@ function Card({
   lvhAlerts,
   isOpen,
   onToggle,
+  held,
 }: {
   s: WatchItem;
   onRemove: (s: WatchItem) => void;
@@ -113,6 +115,7 @@ function Card({
   lvhAlerts?: LvhAlert[] | null;
   isOpen: boolean;
   onToggle: () => void;
+  held?: boolean;
 }) {
   const o = s.order;
   const dist = s.dist_to_entry_pct;
@@ -138,6 +141,12 @@ function Card({
             <MarginBadge s={s} />
             <ShortBadge s={s} />
             <ConfluenceBadges edgeAligned={s.edge_aligned} growthPass={s.growth_pass} isDomain={s.is_domain} />
+            {held && (
+              <span title={HELD_NOTE}
+                    className="rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800 cursor-help">
+                📌保有中
+              </span>
+            )}
           </div>
           <div className="mt-1 text-[11px] text-slate-400">
             <span
@@ -192,6 +201,12 @@ function Card({
           {/* IFDOCO 注文設計 */}
           <div className="mt-2 rounded bg-slate-50 p-2">
             <div className="mb-1 text-[10px] font-semibold text-slate-500">注文設計（IFDOCO）</div>
+            {held && (
+              <div className="mb-1 rounded bg-amber-50 px-1.5 py-1 text-[10px] text-amber-800">
+                📌保有中 — この注文設計は<b>新規目線</b>。買い増しの判断は出口監視の🔼
+                （フリーロール成立時のみ）を見る。ナンピンはしない
+              </div>
+            )}
             {o ? (
               <div className="grid grid-cols-4 gap-2">
                 <Metric
@@ -284,6 +299,7 @@ export default function WatchList() {
   const [dossierListReady, setDossierListReady] = useState(false);
   const [dilutionMap, setDilutionMap] = useState<Record<string, DilutionFlag[]>>({});
   const [lvhMap, setLvhMap] = useState<Map<string, LvhAlert[]>>(new Map());
+  const [heldCodes, setHeldCodes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetch("/api/watchlist")
@@ -308,6 +324,11 @@ export default function WatchList() {
   // アクティビスト大量保有報告（注意喚起タグ・売買シグナルではない）: 一覧を一度だけ取得。
   useEffect(() => {
     fetchLvhAlerts().then((d) => setLvhMap(groupLvhAlertsByCode(d.alerts)));
+  }, []);
+
+  // 保有中コード（📌ガード用。✅は新規目線・買い増しは出口監視の🔼のみ）
+  useEffect(() => {
+    fetchHeldCodes().then(setHeldCodes);
   }, []);
 
   const handleRemove = useCallback(async (s: WatchItem) => {
@@ -423,6 +444,7 @@ export default function WatchList() {
             lvhAlerts={lvhMap.get(s.code)}
             isOpen={openCode === s.code}
             onToggle={() => setOpenCode(openCode === s.code ? null : s.code)}
+            held={heldCodes.has(s.code)}
           />
         ))}
       </div>

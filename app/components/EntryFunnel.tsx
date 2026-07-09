@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { EntryFunnelResponse, FunnelEntry } from "@/app/lib/entryFunnel";
 import { fetchDossierList, type DossierSummary } from "@/app/lib/dossier";
 import { marginBadge, shortBadge } from "@/app/lib/margin";
+import { fetchHeldCodes, HELD_NOTE } from "@/app/lib/held";
 import DossierPanel from "./DossierPanel";
 
 const short = (code: string) => code.replace(/0$/, "");
@@ -52,6 +53,7 @@ function EntryCard({
   muted,
   isOpen,
   onToggle,
+  held,
 }: {
   e: FunnelEntry;
   dossier?: DossierSummary;
@@ -59,6 +61,7 @@ function EntryCard({
   muted: boolean;
   isOpen: boolean;
   onToggle: () => void;
+  held?: boolean;
 }) {
   const mb = marginBadge(e);
   const sb = shortBadge(e);
@@ -71,6 +74,12 @@ function EntryCard({
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-semibold text-slate-800">{e.name}</span>
             <span className="text-xs text-slate-400">{short(e.code)}</span>
+            {held && (
+              <span title={HELD_NOTE}
+                    className="rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800 cursor-help">
+                📌保有中
+              </span>
+            )}
             {e.change_trigger && (
               <span
                 className="rounded bg-sky-100 px-1 text-[10px] font-semibold text-sky-700 cursor-help"
@@ -207,6 +216,12 @@ export default function EntryFunnel() {
       .finally(() => setLoading(false));
   }, []);
 
+  // 保有中コード（📌ガード用。厳選の候補は新規目線・買い増しは出口監視の🔼のみ）
+  const [heldCodes, setHeldCodes] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    fetchHeldCodes().then(setHeldCodes);
+  }, []);
+
   // ドシエ一覧を一度だけ取得（バッジ表示＋日中に生成されたドシエの拒否権を即反映するライブ上書き）
   useEffect(() => {
     fetchDossierList()
@@ -313,6 +328,7 @@ export default function EntryFunnel() {
               muted={isStop}
               isOpen={openCode === e.code}
               onToggle={() => setOpenCode(openCode === e.code ? null : e.code)}
+              held={heldCodes.has(e.code)}
             />
           ))}
         </div>

@@ -9,9 +9,11 @@ import { fetchDossierList, dossierWarningBadge, type DossierSummary } from "@/ap
 import { fetchDilutionFlags, dilutionBadge, type DilutionFlag } from "@/app/lib/dilution";
 import { fetchLvhAlerts, lvhBadge, groupLvhAlertsByCode, type LvhAlert } from "@/app/lib/lvh";
 import { marginBadge } from "@/app/lib/margin";
+import { fetchHeldCodes, HELD_NOTE } from "@/app/lib/held";
 
 // 精査/ウォッチ追加ボタン共通 props（Discover.tsx / StockScreener.tsx と同じフローを移植）
 type ActionProps = {
+  held?: boolean;   // 保有中ガード（📌）。✅は新規目線・買い増しは出口監視の🔼のみ
   onScreen?: (code: string) => void;
   watched?: boolean;
   onWatchAdd?: (code: string) => void;
@@ -77,9 +79,15 @@ function maxOpen(trigger: number | null | undefined): number | null {
   return trigger != null ? Math.round(trigger * 1.005 * 10) / 10 : null;
 }
 
-function OrderPlan({ c }: { c: Candidate }) {
+function OrderPlan({ c, held }: { c: Candidate; held?: boolean }) {
   return (
     <div className="bg-amber-50 border-l-4 border-amber-400 p-3 sm:p-4 text-sm leading-relaxed text-slate-800">
+      {held && (
+        <p className="mb-2 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">
+          📌保有中 — このプランは<b>新規目線</b>。買い増しの判断は出口監視の🔼
+          （フリーロール成立時のみ）を見る。ナンピンはしない
+        </p>
+      )}
       <p className="font-semibold mb-2">
         IFDOCO注文プラン — {c.code} {c.name}
         <span className="ml-2 text-xs font-normal text-slate-500">
@@ -151,6 +159,7 @@ function CandidateCard({
   onWatchAdd,
   addingWatch,
   watchErrorMsg,
+  held,
 }: {
   c: Candidate;
   isTop: boolean;
@@ -190,6 +199,12 @@ function CandidateCard({
           <DilutionWarning flags={dilutionFlags} />
           <LvhWarning alerts={lvhAlerts} />
           <MarginBadge c={c} />
+          {held && (
+            <span title={HELD_NOTE}
+                  className="ml-1.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 cursor-help">
+              📌保有中
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="inline-block rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
@@ -258,7 +273,7 @@ function CandidateCard({
       </div>
 
       {/* 注文プランアコーディオン */}
-      {isOpen && <OrderPlan c={c} />}
+      {isOpen && <OrderPlan c={c} held={held} />}
 
       {/* 精査・ウォッチ・詳細ボタン */}
       <div className="px-3 pb-3 pt-1 space-y-1.5">
@@ -325,6 +340,12 @@ export default function CandidatesTable({
   const [lvhMap, setLvhMap] = useState<Map<string, LvhAlert[]>>(new Map());
   useEffect(() => {
     fetchLvhAlerts().then((d) => setLvhMap(groupLvhAlertsByCode(d.alerts)));
+  }, []);
+
+  // 保有中コード（📌ガード用）
+  const [heldCodes, setHeldCodes] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    fetchHeldCodes().then(setHeldCodes);
   }, []);
 
   // 既存ウォッチ銘柄（Discover.tsx / StockScreener.tsx と同じ「追加済み」判定フロー）
@@ -433,6 +454,7 @@ export default function CandidatesTable({
                   onWatchAdd={addToWatch}
                   addingWatch={addingWatchCode === c.code}
                   watchErrorMsg={watchError?.code === c.code ? watchError.message : null}
+                  held={heldCodes.has(c.code)}
                 />
               );
             })}
@@ -476,6 +498,7 @@ export default function CandidatesTable({
                       onWatchAdd={addToWatch}
                       addingWatch={addingWatchCode === c.code}
                       watchErrorMsg={watchError?.code === c.code ? watchError.message : null}
+                      held={heldCodes.has(c.code)}
                     />
                   );
                 })}
@@ -503,6 +526,7 @@ function FragmentRow({
   onWatchAdd,
   addingWatch,
   watchErrorMsg,
+  held,
 }: {
   c: Candidate;
   isTop: boolean;
@@ -536,6 +560,12 @@ function FragmentRow({
             <DilutionWarning flags={dilutionFlags} />
             <LvhWarning alerts={lvhAlerts} />
             <MarginBadge c={c} />
+          {held && (
+            <span title={HELD_NOTE}
+                  className="ml-1.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 cursor-help">
+              📌保有中
+            </span>
+          )}
             {onScreen && (
               <button
                 onClick={(e) => { e.stopPropagation(); onScreen(c.code); }}
@@ -608,7 +638,7 @@ function FragmentRow({
       {isOpen && (
         <tr>
           <td colSpan={colSpan} className="p-0">
-            <OrderPlan c={c} />
+            <OrderPlan c={c} held={held} />
           </td>
         </tr>
       )}
