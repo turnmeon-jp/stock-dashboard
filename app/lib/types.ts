@@ -489,3 +489,99 @@ export interface RealPostmortemData {
   trades: RealPostmortemTrade[];
   summary: RealPostmortemSummary;
 }
+
+// 自動執行（output/execution_plan.json / execution_status.json）。
+// mode: dry_run=模擬計算のみ / demo=証券会社デモ環境へ発注 / live=実弾発注。
+export type ExecutionMode = "dry_run" | "demo" | "live" | string;
+
+export interface ExecutionGuards {
+  sent_today: number;
+  daily_order_limit: number;
+  max_order_yen: number;
+  kill_switch: string | null; // null=平常 / 文字列=作動中（理由）
+  unknown_count: number; // 応答不明の注文数（>0はCLI側で新規発注停止中の合図）
+}
+
+// excluded: null=承認可 / 文字列=見送り理由（ガードで弾かれた・寄り付き前計算不能等）
+export interface ExecutionCandidate {
+  code: string; // 立花コード（4桁、まれに5桁）
+  jq_code: string; // J-Quants 5桁コード
+  name: string;
+  sector: string;
+  setup_type: string;
+  available_at: string;
+  trigger_price: number;
+  limit_price: number;
+  shares: number;
+  shares_original: number; // ガード（max_order_yen等）で縮小される前の株数
+  est_cost: number;
+  stop_loss: number;
+  tp_first: number;
+  rs120: number | null;
+  // 16桁hex。承認/SL設置APIの整合性確認キー。excluded（見送り）行では null（承認対象外のため未発行）
+  hash: string | null;
+  excluded: string | null;
+}
+
+export interface ExecutionPlan {
+  generated_at: string;
+  as_of: string;
+  mode: ExecutionMode;
+  regime: { label: string; [key: string]: unknown };
+  guards: ExecutionGuards;
+  candidates: ExecutionCandidate[];
+}
+
+export type ExecutionIntentState =
+  | "accepted"
+  | "filled"
+  | "partial"
+  | "unknown"
+  | "error"
+  | "cancelled"
+  | string;
+
+export interface ExecutionIntent {
+  intent_id: string;
+  code: string;
+  name: string;
+  side: string;
+  qty: number;
+  state: ExecutionIntentState;
+  order_number: string | null;
+  limit_price: number | null;
+  stop_trigger: number | null;
+  updated_at: string;
+  note?: string | null;
+}
+
+export interface ExecutionPosition {
+  code: string;
+  qty: number;
+  sellable_qty: number;
+}
+
+export interface ExecutionNeedStop {
+  code: string;
+  name: string;
+  qty: number;
+  stop_trigger: number;
+  hash: string;
+}
+
+export interface ExecutionStatus {
+  updated: string;
+  mode: ExecutionMode;
+  kill_switch: string | null;
+  daily: { sent: number; limit: number };
+  unknown_count: number;
+  intents: ExecutionIntent[];
+  positions: ExecutionPosition[];
+  need_stop: ExecutionNeedStop[];
+}
+
+// api/execution の GET レスポンス（未生成/破損は null・200。exit-monitor 流儀）
+export interface ExecutionResponse {
+  plan: ExecutionPlan | null;
+  status: ExecutionStatus | null;
+}

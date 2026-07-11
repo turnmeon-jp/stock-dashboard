@@ -15,8 +15,9 @@ import EntryFunnel from "./EntryFunnel";
 import DisclosureBanner from "./DisclosureBanner";
 import ActionQueue from "./ActionQueue";
 import LedgerReport from "./LedgerReport";
+import ExecutionPanel from "./ExecutionPanel";
 
-type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "ledger" | "guide";
+type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "ledger" | "exec" | "guide";
 
 const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "candidates", label: "今日の候補" },
@@ -29,6 +30,7 @@ const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "paper",      label: "ペーパートレード" },
   { key: "ledger",     label: "検証" },
   { key: "portfolio",  label: "ポートフォリオ" },
+  { key: "exec",       label: "自動執行" },
   { key: "guide",      label: "解説" },
 ];
 
@@ -188,6 +190,11 @@ export default function DashboardTabs({
       {mounted.has("ledger") && (
         <div style={{ display: tab === "ledger" ? "block" : "none" }}>
           <LedgerReport />
+        </div>
+      )}
+      {mounted.has("exec") && (
+        <div style={{ display: tab === "exec" ? "block" : "none" }}>
+          <ExecutionPanel />
         </div>
       )}
       {mounted.has("guide") && (
