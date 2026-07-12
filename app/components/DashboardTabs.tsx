@@ -19,18 +19,22 @@ import ExecutionPanel from "./ExecutionPanel";
 
 type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "ledger" | "exec" | "guide";
 
+// 並びは使用頻度順（毎日の中核=出口規律・執行承認・候補確認、随時=発掘系、
+// 参照時のみ=解説）。保有フォローは出口監視タブに集約済みで、ポートフォリオは
+// localStorage手動登録の旧機能のため末尾。既定タブは readTabFromURL の
+// "candidates" フォールバックで決まり、この配列の順序には依存しない。
 const TAB_DEFS: { key: Tab; label: string }[] = [
-  { key: "candidates", label: "今日の候補" },
-  { key: "funnel",     label: "エントリー厳選" },
-  { key: "discover",   label: "発掘" },
-  { key: "screen",     label: "気になる銘柄" },
-  { key: "watch",      label: "ウォッチ" },
   { key: "exit",       label: "出口監視" },
-  { key: "charts",     label: "チャート一覧" },
+  { key: "exec",       label: "自動執行" },
+  { key: "candidates", label: "今日の候補" },
+  { key: "watch",      label: "ウォッチ" },
+  { key: "funnel",     label: "エントリー厳選" },
   { key: "paper",      label: "ペーパートレード" },
   { key: "ledger",     label: "検証" },
+  { key: "discover",   label: "発掘" },
+  { key: "screen",     label: "気になる銘柄" },
+  { key: "charts",     label: "チャート一覧" },
   { key: "portfolio",  label: "ポートフォリオ" },
-  { key: "exec",       label: "自動執行" },
   { key: "guide",      label: "解説" },
 ];
 
