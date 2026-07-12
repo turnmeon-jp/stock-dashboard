@@ -446,18 +446,6 @@ export interface LedgerReportResponse extends LedgerReport {
   message: string | null;
 }
 
-// ポートフォリオ建玉（localStorage に永続化）
-export interface Position {
-  id: string;
-  code: string;
-  name: string;
-  shares: number;
-  buyPrice: number; // 取得単価
-  buyDate: string; // 取得日 YYYY-MM-DD
-  stopLoss: number; // 損切価格
-  currentPrice: number | null; // 現在値（手入力）
-}
-
 // 実弾トレードの振り返り＝旧称ポストモーテム（output/real_postmortem.json）。逆解析の基準値（勝率21%・利小損大）と比較する趣旨。
 export interface RealPostmortemTrade {
   code: string | null;

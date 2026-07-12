@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Candidate } from "@/app/lib/types";
 import CandidatesTable from "./CandidatesTable";
-import Portfolio from "./Portfolio";
 import ChartGrid from "./ChartGrid";
 import PaperTrade from "./PaperTrade";
 import SystemGuide from "./SystemGuide";
@@ -17,12 +16,12 @@ import ActionQueue from "./ActionQueue";
 import LedgerReport from "./LedgerReport";
 import ExecutionPanel from "./ExecutionPanel";
 
-type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "portfolio" | "paper" | "ledger" | "exec" | "guide";
+type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "paper" | "ledger" | "exec" | "guide";
 
 // 並びは使用頻度順（毎日の中核=出口規律・執行承認・候補確認、随時=発掘系、
-// 参照時のみ=解説）。保有フォローは出口監視タブに集約済みで、ポートフォリオは
-// localStorage手動登録の旧機能のため末尾。既定タブは readTabFromURL の
-// "candidates" フォールバックで決まり、この配列の順序には依存しない。
+// 参照時のみ=解説）。保有フォローは出口監視タブに集約済み（旧ポートフォリオ
+// タブは2026-07-12削除）。既定タブは readTabFromURL の "candidates"
+// フォールバックで決まり、この配列の順序には依存しない。
 const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "exit",       label: "出口監視" },
   { key: "exec",       label: "自動執行" },
@@ -34,7 +33,6 @@ const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "discover",   label: "発掘" },
   { key: "screen",     label: "気になる銘柄" },
   { key: "charts",     label: "チャート一覧" },
-  { key: "portfolio",  label: "ポートフォリオ" },
   { key: "guide",      label: "解説" },
 ];
 
@@ -179,11 +177,6 @@ export default function DashboardTabs({
       {mounted.has("charts") && (
         <div style={{ display: tab === "charts" ? "block" : "none" }}>
           <ChartGrid />
-        </div>
-      )}
-      {mounted.has("portfolio") && (
-        <div style={{ display: tab === "portfolio" ? "block" : "none" }}>
-          <Portfolio />
         </div>
       )}
       {mounted.has("paper") && (
