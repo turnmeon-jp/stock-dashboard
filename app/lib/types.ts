@@ -527,6 +527,7 @@ export type ExecutionIntentState =
   | "unknown"
   | "error"
   | "cancelled"
+  | "approved" // Phase C+: 承認済・未発注（翌朝の寄り前ゲート判定待ち）
   | string;
 
 export interface ExecutionIntent {
@@ -557,6 +558,32 @@ export interface ExecutionNeedStop {
   hash: string;
 }
 
+// 寄り前ゲート（Phase C+）の銘柄別判定。execution.daily open-gate の出力契約。
+export type ExecutionGateDecision =
+  | "placed" // 発注した
+  | "skipped_gate" // 気配が上限を超過等で見送り
+  | "skipped_negative" // 悪材料検知で失効
+  | "expired_stale" // 解禁日（stale）超過で失効
+  | "rejected_guard" // ガード（日次枠・kill switch等）で拒否
+  | "error"
+  | string;
+
+export interface ExecutionGateResult {
+  code: string;
+  name: string;
+  decision: ExecutionGateDecision;
+  gate_price: number | null; // 気配値。取得不能時 null
+  limit_price: number;
+  note: string;
+  order_number: string; // 未発注（placed以外）は空文字
+}
+
+// status.gate はゲートを実行した日のみ存在するフィールド（未実行なら status.gate 自体が undefined）
+export interface ExecutionGate {
+  ran_at: string;
+  results: ExecutionGateResult[];
+}
+
 export interface ExecutionStatus {
   updated: string;
   mode: ExecutionMode;
@@ -566,6 +593,7 @@ export interface ExecutionStatus {
   intents: ExecutionIntent[];
   positions: ExecutionPosition[];
   need_stop: ExecutionNeedStop[];
+  gate?: ExecutionGate;
 }
 
 // api/execution の GET レスポンス（未生成/破損は null・200。exit-monitor 流儀）

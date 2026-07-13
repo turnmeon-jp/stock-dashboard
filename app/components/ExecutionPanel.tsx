@@ -31,6 +31,8 @@ function intentTone(state: string): string {
       return "bg-emerald-100 text-emerald-700";
     case "partial":
       return "bg-amber-100 text-amber-700";
+    case "approved":
+      return "bg-amber-100 text-amber-700"; // 承認済・未発注（ゲート待ち）
     case "unknown":
     case "error":
       return "bg-rose-100 text-rose-700";
@@ -47,6 +49,32 @@ const INTENT_STATE_LABELS: Record<string, string> = {
   unknown: "応答不明",
   error: "エラー",
   cancelled: "取消",
+  approved: "ゲート待ち",
+};
+
+// 寄り前ゲート（Phase C+）の判定結果 → バッジ色・ラベル
+const GATE_DECISION_TONE: Record<string, string> = {
+  placed: "bg-emerald-100 text-emerald-700",
+  skipped_gate: "bg-slate-100 text-slate-600",
+  skipped_negative: "bg-rose-100 text-rose-700",
+  expired_stale: "bg-slate-100 text-slate-600",
+  rejected_guard: "bg-rose-100 text-rose-700",
+  error: "bg-rose-100 text-rose-700",
+};
+const GATE_DECISION_LABELS: Record<string, string> = {
+  placed: "発注",
+  skipped_gate: "気配見送り",
+  skipped_negative: "悪材料失効",
+  expired_stale: "解禁日超過",
+  rejected_guard: "ガード拒否",
+  error: "エラー",
+};
+
+// 引数なし系オペレーションのボタンラベル（結果バナーの見出しにも流用）
+const OPS_LABELS: Record<string, string> = {
+  "open-gate": "ゲート実行",
+  "post-open": "引け後処理",
+  ratchet: "SLラチェット",
 };
 
 // ボタン内の簡易スピナー（busy時のみ表示。CSS animate-spin を流用）
@@ -144,6 +172,7 @@ type ConfirmState =
   | { kind: "approve"; candidate: ExecutionCandidate }
   | { kind: "place-stop"; item: ExecutionNeedStop }
   | { kind: "kill" }
+  | { kind: "open-gate" }
   | null;
 
 export default function ExecutionPanel() {
@@ -158,6 +187,10 @@ export default function ExecutionPanel() {
 
   // 承認/SL設置に成功したhash（同一プラン内での再送信防止。TradeReportForm/ExitMonitor流儀）
   const [doneHashes, setDoneHashes] = useState<Set<string>>(new Set());
+
+  // 引数なし系オペレーション（ゲート実行/引け後処理/SLラチェット）＋承認直後の結果バナー。
+  // TradeReportForm の <pre> 結果表示と同じ流儀（成功=emerald/失敗=rose）。
+  const [opNote, setOpNote] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -183,7 +216,7 @@ export default function ExecutionPanel() {
         body: JSON.stringify(body),
       });
       const d = (await r.json()) as { ok?: boolean; error?: string; result?: unknown };
-      return { httpOk: r.ok, ok: d.ok === true, error: d.error };
+      return { httpOk: r.ok, ok: d.ok === true, error: d.error, result: d.result };
     },
     [],
   );
@@ -200,6 +233,33 @@ export default function ExecutionPanel() {
         }
       } catch {
         setTopError("通信エラー");
+      } finally {
+        await load();
+        setBusy(false);
+      }
+    },
+    [runAction, load],
+  );
+
+  // 引け後処理・SLラチェット（確認モーダル不要な引数なし系。ゲート実行は取り消し不能な発注を
+  // 起こし得るため confirm 経由＝doConfirm 側で実行する）
+  const handleOpsAction = useCallback(
+    async (kind: "post-open" | "ratchet") => {
+      setBusy(true);
+      setTopError(null);
+      setOpNote(null);
+      try {
+        const res = await runAction({ kind });
+        if (!res.httpOk || !res.ok) {
+          setOpNote({ ok: false, text: `${OPS_LABELS[kind]}: ${res.error ?? "失敗しました"}` });
+        } else {
+          setOpNote({
+            ok: true,
+            text: `${OPS_LABELS[kind]}: 完了しました ${JSON.stringify(res.result ?? {})}`,
+          });
+        }
+      } catch {
+        setOpNote({ ok: false, text: `${OPS_LABELS[kind]}: 通信エラー` });
       } finally {
         await load();
         setBusy(false);
@@ -235,6 +295,10 @@ export default function ExecutionPanel() {
           return;
         }
         setDoneHashes((prev) => new Set(prev).add(hash));
+        setOpNote({
+          ok: true,
+          text: `承認しました: ${confirm.candidate.name}（明朝8:55の寄り前ゲートで気配判定のうえ自動発注されます。約定した場合、SL逆指値 ${fmtYen(confirm.candidate.stop_loss)} まで自動設置されます）`,
+        });
         setConfirm(null);
       } else if (confirm.kind === "place-stop") {
         const res = await runAction({
@@ -260,6 +324,17 @@ export default function ExecutionPanel() {
           return;
         }
         setConfirm(null);
+      } else if (confirm.kind === "open-gate") {
+        const res = await runAction({ kind: "open-gate" });
+        if (!res.httpOk || !res.ok) {
+          setConfirmError(res.error ?? "失敗しました");
+          return;
+        }
+        setOpNote({
+          ok: true,
+          text: `${OPS_LABELS["open-gate"]}: 完了しました ${JSON.stringify(res.result ?? {})}`,
+        });
+        setConfirm(null);
       }
     } catch {
       setConfirmError("通信エラー");
@@ -283,15 +358,21 @@ export default function ExecutionPanel() {
   const dailyLimit = status?.daily.limit ?? plan?.guards.daily_order_limit ?? 0;
   const unknownCount = status?.unknown_count ?? plan?.guards.unknown_count ?? 0;
 
-  // 既発注コード（status.intents 由来）。doneHashes はセッション内stateのため、
+  // 既発注/承認済コード（status.intents 由来）。doneHashes はセッション内stateのため、
   // リロード・別タブ・再マウントで承認ボタンが復活してしまう。サーバ側の永続状態から
   // 「有効なbuy intentが存在する銘柄」を導出し、OR判定で二重発注をUI側でも封鎖する
   // （最終防衛はバックエンドのsqlite一意制約と日次枠。ここは多重防御の1枚）。
   // error/cancelled/expired は死んだintent＝再発注があり得るため除外。
+  // Phase C+: approve は「承認のみ」になったため、state="approved"（未発注・ゲート待ち）は
+  // 実発注済み(orderedCodes)とは別集合に分け、バッジの文言を出し分ける。
   const DEAD_INTENT_STATES = new Set(["error", "cancelled", "expired"]);
+  const buyIntents = (status?.intents ?? []).filter((it) => it.side === "buy");
+  const approvedCodes = new Set(
+    buyIntents.filter((it) => it.state === "approved").map((it) => it.code),
+  );
   const orderedCodes = new Set(
-    (status?.intents ?? [])
-      .filter((it) => it.side === "buy" && !DEAD_INTENT_STATES.has(it.state))
+    buyIntents
+      .filter((it) => it.state !== "approved" && !DEAD_INTENT_STATES.has(it.state))
       .map((it) => it.code),
   );
 
@@ -356,9 +437,47 @@ export default function ExecutionPanel() {
           {busy && <Spinner />}
           同期
         </button>
+        <button
+          onClick={() => setConfirm({ kind: "open-gate" })}
+          disabled={busy}
+          className="flex items-center gap-1.5 rounded border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+          title="寄り前ゲートを手動実行する（気配・悪材料判定のうえ発注が起き得ます）"
+        >
+          {busy && <Spinner />}
+          ゲート実行
+        </button>
+        <button
+          onClick={() => void handleOpsAction("post-open")}
+          disabled={busy}
+          className="flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          title="約定状況を同期し、約定済み分のSLを自動設置する"
+        >
+          {busy && <Spinner />}
+          引け後処理
+        </button>
+        <button
+          onClick={() => void handleOpsAction("ratchet")}
+          disabled={busy}
+          className="flex items-center gap-1.5 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          title="含み益銘柄のSL逆指値を切り上げる"
+        >
+          {busy && <Spinner />}
+          SLラチェット
+        </button>
       </div>
       {topError && (
         <p className="rounded bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">{topError}</p>
+      )}
+      {opNote && (
+        <pre
+          className={`whitespace-pre-wrap break-all rounded border px-3 py-2 text-xs ${
+            opNote.ok
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-rose-200 bg-rose-50 text-rose-700"
+          }`}
+        >
+          {opNote.text}
+        </pre>
       )}
 
       {/* 候補テーブル */}
@@ -389,9 +508,13 @@ export default function ExecutionPanel() {
               <tbody>
                 {plan.candidates.map((c) => {
                   // excluded行はhash=null。keyはjq_code（プラン内で一意）を使い、hashに依存しない。
-                  // 発注済み判定 = セッション内の即時反映(doneHashes) OR サーバ永続状態(orderedCodes)
-                  const isDone =
-                    (c.hash != null && doneHashes.has(c.hash)) || orderedCodes.has(c.code);
+                  // 発注済み判定 = サーバ永続状態(orderedCodes)。承認済み(ゲート待ち)判定 =
+                  // セッション内の即時反映(doneHashes) OR サーバ永続状態(approvedCodes)。
+                  // 発注済みが優先（ゲート実行後に approved→accepted 等へ遷移した場合の表示を正しくするため）。
+                  const isOrdered = orderedCodes.has(c.code);
+                  const isApprovedPending =
+                    !isOrdered &&
+                    ((c.hash != null && doneHashes.has(c.hash)) || approvedCodes.has(c.code));
                   const isExcluded = !!c.excluded;
                   return (
                     <tr
@@ -430,8 +553,15 @@ export default function ExecutionPanel() {
                       <td className="whitespace-nowrap px-2 py-2 text-right">
                         {isExcluded ? (
                           <span className="text-slate-400">{c.excluded}</span>
-                        ) : isDone ? (
+                        ) : isOrdered ? (
                           <span className="text-emerald-600">✔ 発注済</span>
+                        ) : isApprovedPending ? (
+                          <span
+                            className="text-amber-600"
+                            title="明朝8:55の寄り前ゲートで気配判定のうえ自動発注されます"
+                          >
+                            ✔ 承認済（ゲート待ち）
+                          </span>
                         ) : !c.hash ? (
                           // 契約上excluded以外はhashを持つはずだが、欠損時は承認不可として安全側に倒す
                           <span className="text-slate-400">hashなし（承認不可）</span>
@@ -441,7 +571,7 @@ export default function ExecutionPanel() {
                             disabled={busy || !!killSwitch}
                             className="rounded border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
                           >
-                            承認して発注
+                            承認（明朝ゲートで自動発注）
                           </button>
                         )}
                       </td>
@@ -493,6 +623,63 @@ export default function ExecutionPanel() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* 寄り前ゲート結果（実行した日のみ status.gate が存在）。results は破損/移行中の
+                execution_status.json で欠損し得るため配列に畳んでから描画（codexレビューP2） */}
+            {status.gate && (
+              <div>
+                <div className="mb-1 text-xs font-medium text-slate-500">
+                  本日の寄り前ゲート（{status.gate.ran_at}）
+                </div>
+                {!Array.isArray(status.gate.results) || status.gate.results.length === 0 ? (
+                  <p className="rounded-lg border border-slate-200 bg-white py-4 text-center text-xs text-slate-400 shadow-sm">
+                    対象銘柄はありませんでした。
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-100 text-left text-slate-600">
+                          {["銘柄", "判定", "気配", "寄指上限", "注文番号", "note"].map((h, i) => (
+                            <th key={i} className="whitespace-nowrap px-2 py-2 font-medium">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {status.gate.results.map((g, i) => (
+                          <tr key={`${g.code}:${i}`} className="border-t border-slate-100">
+                            <td className="whitespace-nowrap px-2 py-2">
+                              <span className="font-mono text-slate-500">{g.code}</span> {g.name}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2">
+                              <span
+                                className={`rounded px-1.5 py-0.5 font-medium ${
+                                  GATE_DECISION_TONE[g.decision] ?? "bg-slate-100 text-slate-600"
+                                }`}
+                              >
+                                {GATE_DECISION_LABELS[g.decision] ?? g.decision}
+                              </span>
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                              {g.gate_price != null ? fmtInt(g.gate_price) : "-"}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                              {fmtInt(g.limit_price)}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 font-mono text-slate-500">
+                              {g.order_number || "-"}
+                            </td>
+                            <td className="px-2 py-2 text-slate-500">{g.note}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
 
@@ -587,12 +774,12 @@ export default function ExecutionPanel() {
         )}
       </div>
 
-      {/* 承認して発注: 確認モーダル */}
+      {/* 承認（明朝ゲートで自動発注）: 確認モーダル */}
       {confirm?.kind === "approve" && (
         <ConfirmSheet
-          title={`承認して発注: ${confirm.candidate.name}`}
+          title={`承認: ${confirm.candidate.name}`}
           tone="bg-emerald-600 hover:bg-emerald-700"
-          confirmLabel="この内容で発注する"
+          confirmLabel="この内容で承認する"
           busy={busy}
           error={confirmError}
           onConfirm={() => void doConfirm()}
@@ -609,12 +796,27 @@ export default function ExecutionPanel() {
                   : `${fmtInt(confirm.candidate.shares)}株`,
             },
             { label: "概算額", value: fmtYen(confirm.candidate.est_cost) },
-            { label: "損切(SL)", value: fmtYen(confirm.candidate.stop_loss) },
+            { label: "SLトリガー（約定後に自動設置）", value: fmtYen(confirm.candidate.stop_loss) },
             { label: "利確目標", value: fmtYen(confirm.candidate.tp_first) },
             { label: "RS120", value: confirm.candidate.rs120 != null ? `${confirm.candidate.rs120}%` : "-" },
             { label: "hash", value: confirm.candidate.hash ?? "—" },
           ]}
-          note="この操作は取り消せません。実際の発注はここでの承認をもって実行されます。"
+          note="承認後は取り消せません。実際の発注は明朝8:55の寄り前ゲートで気配・悪材料を判定のうえ実行されます。約定した場合、このSL逆指値まで自動設置されます。"
+        />
+      )}
+
+      {/* ゲート実行: 確認モーダル（発注が起き得る操作） */}
+      {confirm?.kind === "open-gate" && (
+        <ConfirmSheet
+          title="寄り前ゲートを実行"
+          tone="bg-emerald-600 hover:bg-emerald-700"
+          confirmLabel="ゲートを実行する"
+          busy={busy}
+          error={confirmError}
+          onConfirm={() => void doConfirm()}
+          onClose={closeConfirm}
+          rows={[]}
+          note="承認済み（ゲート待ち）の候補について、現在の気配・悪材料を判定したうえで発注が実行される場合があります。この操作は取り消せません。"
         />
       )}
 

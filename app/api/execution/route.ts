@@ -17,7 +17,19 @@ const STATUS_PATH = path.join(REPO_ROOT, "output", "execution_status.json");
 // pipeline/holdings_cli.py 等の CODE_RE(/^\d{3}[0-9A-Z]0?$/) は J-Quants 5桁用の別体系のため流用しない。
 const CODE_RE = /^[0-9A-Z]{4,5}$/;
 const HASH_RE = /^[0-9a-f]{16}$/;
-const KIND_ALLOW = new Set(["plan", "approve", "sync", "place-stop", "kill"]);
+// open-gate/post-open/ratchet は Phase C+ で追加（いずれも引数なし。寄り前ゲート手動実行/
+// 引け後同期+SL自動設置/SL切上げ）。approve は「承認のみ」に意味が変わり、実発注は
+// 翌朝の open-gate（launchd等からの定期実行）に委ねられる。
+const KIND_ALLOW = new Set([
+  "plan",
+  "approve",
+  "sync",
+  "place-stop",
+  "kill",
+  "open-gate",
+  "post-open",
+  "ratchet",
+]);
 
 async function readJsonOrNull<T>(p: string): Promise<T | null> {
   try {
@@ -48,8 +60,9 @@ function strField(obj: Record<string, unknown>, key: string): string | null {
 // 同時多重POSTの雑な間引き（429を返して即失敗させる）のみが目的（dossier/route.ts 流儀）。
 let active = 0;
 
-// 自動執行パネルの唯一のミューテーション入口。plan/sync/approve/place-stop/kill はいずれも
-// execution.daily の該当サブコマンドを起動するだけで、売買の是非はCLI側（人間の承認 or ガード）が握る。
+// 自動執行パネルの唯一のミューテーション入口。plan/sync/approve/place-stop/kill/
+// open-gate/post-open/ratchet はいずれも execution.daily の該当サブコマンドを起動するだけで、
+// 売買の是非はCLI側（人間の承認 or ガード）が握る。
 export async function POST(req: Request) {
   let raw: unknown;
   try {
@@ -91,7 +104,7 @@ export async function POST(req: Request) {
     }
     args.push("--reason", reason);
   }
-  // plan / sync は引数なし
+  // plan / sync / open-gate / post-open / ratchet は引数なし
 
   if (active >= 1) {
     return Response.json(
