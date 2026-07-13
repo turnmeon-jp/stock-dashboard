@@ -573,3 +573,67 @@ export interface ExecutionResponse {
   plan: ExecutionPlan | null;
   status: ExecutionStatus | null;
 }
+
+// 特殊状況（TOB/MBO裁定）。output/special_situations.json。観測モード
+// （2026-07時点は売買判断材料ではなく、実測分布の蓄積が先。年率=スプレッド×365/(残日数+7)）。
+export type SpecialSituationDealType = "TOB" | "MBO" | string;
+
+export interface SpecialSituationActive {
+  deal_key: string;
+  target_code: string | null; // 抽出未完了(needs_review)ではnull
+  target_name: string | null;
+  bidder: string | null;
+  deal_type: SpecialSituationDealType;
+  offer_price: number | null; // 同上
+
+  close: number | null;
+  spread_pct: number | null;
+  annualized_pct: number | null;
+  period_start: string;
+  period_end: string;
+  days_left: number | null;
+  premium_pct: number | null;
+  conditions_note: string;
+  needs_review: boolean;
+  announced: string;
+}
+
+export interface SpecialSituationCompleted {
+  deal_key: string;
+  target_name: string;
+  deal_type: SpecialSituationDealType;
+  offer_price: number;
+  announced: string;
+  period_end: string;
+  result_note: string | null;
+}
+
+export interface SpecialSituationNeedsReview {
+  deal_key: string;
+  target_name: string;
+  announced: string;
+  reason: string;
+}
+
+export interface SpecialSituationSummary {
+  n_active: number;
+  n_completed: number;
+  avg_premium_pct: number | null;
+}
+
+export interface SpecialSituationsData {
+  generated_at: string;
+  as_of: string;
+  note: string;
+  active: SpecialSituationActive[];
+  completed: SpecialSituationCompleted[];
+  needs_review: SpecialSituationNeedsReview[];
+  summary: SpecialSituationSummary;
+}
+
+// api/special-situations の GET レスポンス。exit-monitor 等と異なり「0件」と「夜バッチ未実行で
+// ファイル自体が無い」を区別して空状態文言を出し分けるため exists フラグを明示する。
+export interface SpecialSituationsResponse {
+  exists: boolean;
+  data: SpecialSituationsData | null;
+}

@@ -15,8 +15,9 @@ import DisclosureBanner from "./DisclosureBanner";
 import ActionQueue from "./ActionQueue";
 import LedgerReport from "./LedgerReport";
 import ExecutionPanel from "./ExecutionPanel";
+import SpecialSituations from "./SpecialSituations";
 
-type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "paper" | "ledger" | "exec" | "guide";
+type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "paper" | "ledger" | "special" | "exec" | "guide";
 
 // 並びは使用頻度順（毎日の中核=出口規律・執行承認・候補確認、随時=発掘系、
 // 参照時のみ=解説）。保有フォローは出口監視タブに集約済み（旧ポートフォリオ
@@ -30,6 +31,7 @@ const TAB_DEFS: { key: Tab; label: string }[] = [
   { key: "funnel",     label: "エントリー厳選" },
   { key: "paper",      label: "ペーパートレード" },
   { key: "ledger",     label: "検証" },
+  { key: "special",    label: "特殊状況" },
   { key: "discover",   label: "発掘" },
   { key: "screen",     label: "気になる銘柄" },
   { key: "charts",     label: "チャート一覧" },
@@ -187,6 +189,11 @@ export default function DashboardTabs({
       {mounted.has("ledger") && (
         <div style={{ display: tab === "ledger" ? "block" : "none" }}>
           <LedgerReport />
+        </div>
+      )}
+      {mounted.has("special") && (
+        <div style={{ display: tab === "special" ? "block" : "none" }}>
+          <SpecialSituations />
         </div>
       )}
       {mounted.has("exec") && (
