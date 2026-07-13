@@ -198,7 +198,7 @@ export default function DashboardTabs({
       )}
       {mounted.has("exec") && (
         <div style={{ display: tab === "exec" ? "block" : "none" }}>
-          <ExecutionPanel />
+          <ExecutionPanel candidates={candidates} onScreen={requestScreen} />
         </div>
       )}
       {mounted.has("guide") && (

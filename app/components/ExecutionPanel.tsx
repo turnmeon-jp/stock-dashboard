@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type {
+  Candidate,
   ExecutionCandidate,
   ExecutionIntent,
   ExecutionNeedStop,
   ExecutionResponse,
 } from "@/app/lib/types";
-import { fmtInt, fmtYen } from "@/app/lib/format";
+import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
+import { setupLabel } from "@/app/lib/constants";
 
 // モード→バッジ色（dry_run=地味・demo=注意・live=強調。誤発注防止のため live は特に目立たせる）
 function modeTone(mode: string): string {
@@ -168,6 +171,129 @@ function ConfirmSheet({
   );
 }
 
+// 候補行の詳細展開（CandidatesTable.tsx の行タップ→注文プラン展開/詳細ボタンの流儀を踏襲）。
+// execution_plan の候補は signals.json（candidates prop）と jq_code で突合し、
+// RSI/SMA25乖離/RS120/売買代金/成長フラグ等の豊富な指標を補完表示する。
+// 未突合（対象外・失効等）でも jq_code さえあればチャート・精査は開けるためボタンは常に出す。
+function ExecCandidateDetail({
+  ec,
+  candidate,
+  onScreen,
+}: {
+  ec: ExecutionCandidate;
+  candidate?: Candidate;
+  onScreen?: (code: string) => void;
+}) {
+  return (
+    <div className="border-t border-slate-100 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700 sm:p-4">
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        <span className="font-mono text-slate-500">{ec.jq_code}</span>
+        <span className="font-semibold text-slate-800">{ec.name}</span>
+        <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] text-slate-600">
+          {setupLabel(ec.setup_type)}
+        </span>
+        {candidate?.edge_aligned && (
+          <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+            ✓ 適合
+          </span>
+        )}
+        {candidate?.growth_pass === true && (
+          <span className="rounded-full bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700">
+            成長通過
+          </span>
+        )}
+        {ec.excluded && (
+          <span className="rounded bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+            見送り: {ec.excluded}
+          </span>
+        )}
+      </div>
+
+      {/* 執行プラン由来（常に表示できる数値） */}
+      <div className="mb-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+        <div>
+          <span className="text-slate-400">寄指上限</span>{" "}
+          <span className="font-mono font-semibold text-blue-700">{fmtYen(ec.limit_price)}</span>
+        </div>
+        <div>
+          <span className="text-slate-400">損切（逆指値）</span>{" "}
+          <span className="font-mono font-semibold text-rose-600">{fmtYen(ec.stop_loss)}</span>
+        </div>
+        <div>
+          <span className="text-slate-400">利確目標</span>{" "}
+          <span className="font-mono font-semibold text-emerald-700">{fmtYen(ec.tp_first)}</span>
+        </div>
+        <div>
+          <span className="text-slate-400">執行可能日</span>{" "}
+          <span className="font-mono">{ec.available_at}</span>
+        </div>
+      </div>
+
+      {/* signals.json 突合分（見つかった場合のみ） */}
+      {candidate ? (
+        <div className="mb-2 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+          <div>
+            <span className="text-slate-400">RSI(14)</span>{" "}
+            <span className="font-mono">{fmtNum(candidate.rsi14)}</span>
+          </div>
+          <div>
+            <span className="text-slate-400">SMA25乖離</span>{" "}
+            <span className="font-mono">{fmtPct(candidate.dist_sma25_pct)}</span>
+          </div>
+          <div>
+            <span className="text-slate-400">RS120</span>{" "}
+            <span className="font-mono">{fmtPct(candidate.rs120)}</span>
+          </div>
+          <div>
+            <span className="text-slate-400">売買代金</span>{" "}
+            <span className="font-mono">{fmtNum(candidate.turnover_oku)}億</span>
+          </div>
+          <div className="col-span-2">
+            <span className="text-slate-400">市場/セクター</span> {candidate.market} / {candidate.sector}
+          </div>
+          <div>
+            <span className="text-slate-400">許容損失</span>{" "}
+            <span className="font-mono">
+              {fmtYen(candidate.risk_yen)}（{fmtPct(candidate.effective_r_pct, 2)}）
+            </span>
+          </div>
+          <div>
+            <span className="text-slate-400">成長</span>{" "}
+            <span className="font-mono">
+              {candidate.growth_pass == null ? "-" : candidate.growth_pass ? "通過" : "非通過"}
+              {candidate.growth_rev_yoy != null ? `（増収${fmtPct(candidate.growth_rev_yoy * 100)}）` : ""}
+            </span>
+          </div>
+        </div>
+      ) : (
+        <p className="mb-2 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+          本日のsignals候補に見当たりません（対象外・失効の可能性）。RSI等の詳細指標は表示できません。
+        </p>
+      )}
+
+      {/* jq_code欠損（旧データ）では遷移先が /stock/undefined になるためボタン自体を出さない */}
+      {ec.jq_code && (
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/stock/${ec.jq_code}`}
+            className="rounded border border-blue-300 bg-white px-3 py-1.5 text-center text-xs font-medium text-blue-700 hover:bg-blue-50"
+          >
+            詳細チャートを開く
+          </Link>
+          {onScreen && (
+            <button
+              onClick={() => onScreen(ec.jq_code)}
+              className="rounded border border-blue-200 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+            >
+              この銘柄を精査 →
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type ConfirmState =
   | { kind: "approve"; candidate: ExecutionCandidate }
   | { kind: "place-stop"; item: ExecutionNeedStop }
@@ -175,7 +301,16 @@ type ConfirmState =
   | { kind: "open-gate" }
   | null;
 
-export default function ExecutionPanel() {
+export default function ExecutionPanel({
+  candidates = [],
+  onScreen,
+}: {
+  // signals.json の全候補（DashboardTabs から渡される）。execution_plan の候補(jq_code)と
+  // 突合して詳細指標を補完表示するために使う（詳細動線の唯一のデータソース＝追加fetch不要）。
+  candidates?: Candidate[];
+  // 「この銘柄を精査」→気になる銘柄タブへの動線（Discover.tsx / CandidatesTable.tsx と同じ流儀）
+  onScreen?: (code: string) => void;
+}) {
   const [data, setData] = useState<ExecutionResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -184,6 +319,15 @@ export default function ExecutionPanel() {
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [killReason, setKillReason] = useState("");
+
+  // 候補行の詳細展開（開いている jq_code。1件のみ・CandidatesTable と同じ単一アコーディオン）
+  const [openCode, setOpenCode] = useState<string | null>(null);
+
+  // signals.json 候補を jq_code でMap化（O(1)突合）
+  const candidateMap = useMemo(
+    () => new Map(candidates.map((c) => [c.code, c])),
+    [candidates],
+  );
 
   // 承認/SL設置に成功したhash（同一プラン内での再送信防止。TradeReportForm/ExitMonitor流儀）
   const [doneHashes, setDoneHashes] = useState<Set<string>>(new Set());
@@ -516,14 +660,27 @@ export default function ExecutionPanel() {
                     !isOrdered &&
                     ((c.hash != null && doneHashes.has(c.hash)) || approvedCodes.has(c.code));
                   const isExcluded = !!c.excluded;
+                  // jq_code欠損（旧データ・破損）はc.code=立花4桁へフォールバック（codexレビューP2:
+                  // undefinedキーだと欠損行同士が連動展開し /stock/undefined へ遷移してしまう）
+                  const rowKey = c.jq_code || c.code;
+                  const isOpen = openCode === rowKey;
                   return (
+                    <Fragment key={rowKey}>
                     <tr
-                      key={c.jq_code}
-                      className={`border-t border-slate-100 ${isExcluded ? "bg-slate-50 text-slate-400" : ""}`}
+                      onClick={() => setOpenCode(isOpen ? null : rowKey)}
+                      title="タップで詳細を表示"
+                      className={`cursor-pointer border-t border-slate-100 hover:bg-blue-50 ${
+                        isExcluded ? "bg-slate-50 text-slate-400" : ""
+                      } ${isOpen ? "bg-blue-50" : ""}`}
                     >
                       <td className="whitespace-nowrap px-2 py-2">
                         <span className="font-mono text-slate-500">{c.code}</span>{" "}
-                        <span className={isExcluded ? "" : "font-medium text-slate-800"}>{c.name}</span>
+                        <span className={isExcluded ? "" : "font-medium text-slate-800"}>{c.name}</span>{" "}
+                        <span
+                          className={`inline-block text-[9px] text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                        >
+                          ▼
+                        </span>
                       </td>
                       <td className="whitespace-nowrap px-2 py-2">{c.setup_type}</td>
                       <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
@@ -567,7 +724,10 @@ export default function ExecutionPanel() {
                           <span className="text-slate-400">hashなし（承認不可）</span>
                         ) : (
                           <button
-                            onClick={() => setConfirm({ kind: "approve", candidate: c })}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirm({ kind: "approve", candidate: c });
+                            }}
                             disabled={busy || !!killSwitch}
                             className="rounded border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
                           >
@@ -576,6 +736,18 @@ export default function ExecutionPanel() {
                         )}
                       </td>
                     </tr>
+                    {isOpen && (
+                      <tr>
+                        <td colSpan={9} className="p-0">
+                          <ExecCandidateDetail
+                            ec={c}
+                            candidate={candidateMap.get(c.jq_code)}
+                            onScreen={onScreen}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
