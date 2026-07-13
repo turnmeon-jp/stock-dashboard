@@ -10,7 +10,7 @@ import type {
   ExecutionResponse,
 } from "@/app/lib/types";
 import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
-import { setupLabel } from "@/app/lib/constants";
+import { setupLabel, TOP_N } from "@/app/lib/constants";
 
 // モード→バッジ色（dry_run=地味・demo=注意・live=強調。誤発注防止のため live は特に目立たせる）
 function modeTone(mode: string): string {
@@ -323,6 +323,10 @@ export default function ExecutionPanel({
   // 候補行の詳細展開（開いている jq_code。1件のみ・CandidatesTable と同じ単一アコーディオン）
   const [openCode, setOpenCode] = useState<string | null>(null);
 
+  // 候補の絞り込み表示: 既定=優先上位TOP_N件のみ。6件目以降と見送り行は折りたたみ（既定閉）
+  const [showRest, setShowRest] = useState(false);
+  const [showExcluded, setShowExcluded] = useState(false);
+
   // signals.json 候補を jq_code でMap化（O(1)突合）
   const candidateMap = useMemo(
     () => new Map(candidates.map((c) => [c.code, c])),
@@ -520,6 +524,146 @@ export default function ExecutionPanel({
       .map((it) => it.code),
   );
 
+  // 候補の絞り込み表示（2026-07-13 ユーザー要望「候補が多すぎて選びにくい」）。
+  // 統一規則（codexレビューP2×2反映）:
+  // - 順位バッジの母集団 = プラン配列の先頭TOP_N行そのもの（excluded/hashの有無に関わらず）。
+  //   execution_plan.json は signals.json と同じ優先順（edge_aligned→売買代金降順）を保持する
+  //   ため、これで「今日の候補」タブの緑背景トップ5と常に同一銘柄・同一順位になる。
+  // - primary（既定表示）= トップ5 ∪ pinned行（approved/ordered/doneHashes該当）。
+  //   トップ5内のexcluded行もprimaryに出す（グレー+見送り理由のまま。「優先2位が上限額不適合で
+  //   見送り」という情報自体が選択の判断材料）。pinnedがプラン再生成後にexcludedへ転じた行も同様
+  //   （自分が承認したものが隠れると不安になるため常に見せる）。
+  // - 「その他の候補」= 6件目以降の発注可能行（pinned除く）
+  // - 「見送り」= 6件目以降のexcluded行（pinned除く）
+  const planCandidates = plan?.candidates ?? [];
+  const rowKeyOf = (c: ExecutionCandidate) => c.jq_code || c.code;
+  const topRank = new Map(
+    planCandidates.slice(0, TOP_N).map((c, i) => [rowKeyOf(c), i + 1]),
+  );
+  const isPinnedRow = (c: ExecutionCandidate) =>
+    orderedCodes.has(c.code) ||
+    approvedCodes.has(c.code) ||
+    (c.hash != null && doneHashes.has(c.hash));
+  const primary = planCandidates.filter((c) => topRank.has(rowKeyOf(c)) || isPinnedRow(c));
+  const others = planCandidates.filter((c) => !topRank.has(rowKeyOf(c)) && !isPinnedRow(c));
+  const rest = others.filter((c) => !c.excluded);
+  const excludedRows = others.filter((c) => !!c.excluded);
+  // 見出しサマリ用: primary = トップ5（topRank.size件）+ pinnedによる追加表示分
+  const pinnedExtra = primary.length - topRank.size;
+  const shownCount =
+    primary.length + (showRest ? rest.length : 0) + (showExcluded ? excludedRows.length : 0);
+
+  // 候補1行（+詳細展開行）の描画。primary/rest/excluded の3グループで共用する
+  const renderCandidateRow = (c: ExecutionCandidate) => {
+    // excluded行はhash=null。keyはjq_code（プラン内で一意）を使い、hashに依存しない。
+    // 発注済み判定 = サーバ永続状態(orderedCodes)。承認済み(ゲート待ち)判定 =
+    // セッション内の即時反映(doneHashes) OR サーバ永続状態(approvedCodes)。
+    // 発注済みが優先（ゲート実行後に approved→accepted 等へ遷移した場合の表示を正しくするため）。
+    const isOrdered = orderedCodes.has(c.code);
+    const isApprovedPending =
+      !isOrdered && ((c.hash != null && doneHashes.has(c.hash)) || approvedCodes.has(c.code));
+    const isExcluded = !!c.excluded;
+    // jq_code欠損（旧データ・破損）はc.code=立花4桁へフォールバック（codexレビューP2:
+    // undefinedキーだと欠損行同士が連動展開し /stock/undefined へ遷移してしまう）
+    const rowKey = rowKeyOf(c);
+    const isOpen = openCode === rowKey;
+    // 優先上位（CandidatesTable のトップ5と同じ緑系の見せ方・順位バッジ）。
+    // excluded行にも順位は付く（母集団=プラン先頭TOP_N行）が、行はグレー・バッジも減灯する。
+    const rank = topRank.get(rowKey);
+    return (
+      <Fragment key={rowKey}>
+        <tr
+          onClick={() => setOpenCode(isOpen ? null : rowKey)}
+          title="タップで詳細を表示"
+          className={`cursor-pointer border-t border-slate-100 hover:bg-blue-50 ${
+            isExcluded ? "bg-slate-50 text-slate-400" : rank ? "bg-emerald-50" : ""
+          } ${isOpen ? "bg-blue-50" : ""}`}
+        >
+          <td className="whitespace-nowrap px-2 py-2">
+            {rank != null && (
+              <span
+                className={`mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold text-white ${
+                  isExcluded ? "bg-slate-400" : "bg-emerald-500"
+                }`}
+              >
+                {rank}
+              </span>
+            )}
+            <span className="font-mono text-slate-500">{c.code}</span>{" "}
+            <span className={isExcluded ? "" : "font-medium text-slate-800"}>{c.name}</span>{" "}
+            <span
+              className={`inline-block text-[9px] text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+            >
+              ▼
+            </span>
+          </td>
+          <td className="whitespace-nowrap px-2 py-2">{c.setup_type}</td>
+          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+            {fmtInt(c.limit_price)}
+          </td>
+          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+            {fmtInt(c.shares)}
+            {c.shares_original !== c.shares && (
+              <span className="ml-1 text-slate-400">(元{fmtInt(c.shares_original)})</span>
+            )}
+          </td>
+          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmtYen(c.est_cost)}</td>
+          <td className="whitespace-nowrap px-2 py-2 text-right font-mono text-rose-600">
+            {fmtInt(c.stop_loss)}
+          </td>
+          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+            {c.rs120 != null ? `${c.rs120}%` : "-"}
+          </td>
+          <td
+            className="whitespace-nowrap px-2 py-2 font-mono text-slate-400"
+            title={c.hash ?? undefined}
+          >
+            {c.hash ? c.hash.slice(0, 8) : "—"}
+          </td>
+          <td className="whitespace-nowrap px-2 py-2 text-right">
+            {isExcluded ? (
+              <span className="text-slate-400">{c.excluded}</span>
+            ) : isOrdered ? (
+              <span className="text-emerald-600">✔ 発注済</span>
+            ) : isApprovedPending ? (
+              <span
+                className="text-amber-600"
+                title="明朝8:55の寄り前ゲートで気配判定のうえ自動発注されます"
+              >
+                ✔ 承認済（ゲート待ち）
+              </span>
+            ) : !c.hash ? (
+              // 契約上excluded以外はhashを持つはずだが、欠損時は承認不可として安全側に倒す
+              <span className="text-slate-400">hashなし（承認不可）</span>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirm({ kind: "approve", candidate: c });
+                }}
+                disabled={busy || !!killSwitch}
+                className="rounded border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                承認（明朝ゲートで自動発注）
+              </button>
+            )}
+          </td>
+        </tr>
+        {isOpen && (
+          <tr>
+            <td colSpan={9} className="p-0">
+              <ExecCandidateDetail
+                ec={c}
+                candidate={candidateMap.get(c.jq_code)}
+                onScreen={onScreen}
+              />
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    );
+  };
+
   return (
     <div className="space-y-5">
       {/* ヘッダ帯: モード・キルスイッチ・日次枠・応答不明警告・緊急停止 */}
@@ -624,9 +768,20 @@ export default function ExecutionPanel({
         </pre>
       )}
 
-      {/* 候補テーブル */}
+      {/* 候補テーブル（既定=優先上位TOP_N件＋承認/発注済み。残り・見送りは折りたたみ） */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">候補（本日のプラン）</h3>
+        <h3 className="mb-2 text-sm font-semibold text-slate-700">
+          候補（本日のプラン）
+          {plan && planCandidates.length > 0 && (
+            <span className="ml-1.5 text-xs font-normal text-slate-500">
+              全{planCandidates.length}件（
+              {!showRest && !showExcluded
+                ? `優先上位${topRank.size}件${pinnedExtra > 0 ? `+承認/発注済み${pinnedExtra}件` : ""}を表示中`
+                : `${shownCount}件を表示中`}
+              ）
+            </span>
+          )}
+        </h3>
         {!plan ? (
           <p className="rounded-lg border border-slate-200 bg-white py-6 text-center text-sm text-slate-400 shadow-sm">
             プランがまだありません。「プラン再生成」を押してください。
@@ -650,106 +805,40 @@ export default function ExecutionPanel({
                 </tr>
               </thead>
               <tbody>
-                {plan.candidates.map((c) => {
-                  // excluded行はhash=null。keyはjq_code（プラン内で一意）を使い、hashに依存しない。
-                  // 発注済み判定 = サーバ永続状態(orderedCodes)。承認済み(ゲート待ち)判定 =
-                  // セッション内の即時反映(doneHashes) OR サーバ永続状態(approvedCodes)。
-                  // 発注済みが優先（ゲート実行後に approved→accepted 等へ遷移した場合の表示を正しくするため）。
-                  const isOrdered = orderedCodes.has(c.code);
-                  const isApprovedPending =
-                    !isOrdered &&
-                    ((c.hash != null && doneHashes.has(c.hash)) || approvedCodes.has(c.code));
-                  const isExcluded = !!c.excluded;
-                  // jq_code欠損（旧データ・破損）はc.code=立花4桁へフォールバック（codexレビューP2:
-                  // undefinedキーだと欠損行同士が連動展開し /stock/undefined へ遷移してしまう）
-                  const rowKey = c.jq_code || c.code;
-                  const isOpen = openCode === rowKey;
-                  return (
-                    <Fragment key={rowKey}>
-                    <tr
-                      onClick={() => setOpenCode(isOpen ? null : rowKey)}
-                      title="タップで詳細を表示"
-                      className={`cursor-pointer border-t border-slate-100 hover:bg-blue-50 ${
-                        isExcluded ? "bg-slate-50 text-slate-400" : ""
-                      } ${isOpen ? "bg-blue-50" : ""}`}
-                    >
-                      <td className="whitespace-nowrap px-2 py-2">
-                        <span className="font-mono text-slate-500">{c.code}</span>{" "}
-                        <span className={isExcluded ? "" : "font-medium text-slate-800"}>{c.name}</span>{" "}
-                        <span
-                          className={`inline-block text-[9px] text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
-                        >
-                          ▼
-                        </span>
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2">{c.setup_type}</td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
-                        {fmtInt(c.limit_price)}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
-                        {fmtInt(c.shares)}
-                        {c.shares_original !== c.shares && (
-                          <span className="ml-1 text-slate-400">(元{fmtInt(c.shares_original)})</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
-                        {fmtYen(c.est_cost)}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right font-mono text-rose-600">
-                        {fmtInt(c.stop_loss)}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
-                        {c.rs120 != null ? `${c.rs120}%` : "-"}
-                      </td>
-                      <td
-                        className="whitespace-nowrap px-2 py-2 font-mono text-slate-400"
-                        title={c.hash ?? undefined}
+                {/* 優先上位（緑背景・順位バッジ=CandidatesTableのトップ5と同一銘柄）＋承認/発注済み */}
+                {primary.map(renderCandidateRow)}
+
+                {/* 6件目以降の発注可能候補（既定閉） */}
+                {rest.length > 0 && (
+                  <tr className="border-t border-slate-100">
+                    <td colSpan={9} className="p-0">
+                      <button
+                        onClick={() => setShowRest((v) => !v)}
+                        className="w-full px-2 py-2 text-left text-xs font-medium text-blue-700 hover:bg-blue-50"
                       >
-                        {c.hash ? c.hash.slice(0, 8) : "—"}
-                      </td>
-                      <td className="whitespace-nowrap px-2 py-2 text-right">
-                        {isExcluded ? (
-                          <span className="text-slate-400">{c.excluded}</span>
-                        ) : isOrdered ? (
-                          <span className="text-emerald-600">✔ 発注済</span>
-                        ) : isApprovedPending ? (
-                          <span
-                            className="text-amber-600"
-                            title="明朝8:55の寄り前ゲートで気配判定のうえ自動発注されます"
-                          >
-                            ✔ 承認済（ゲート待ち）
-                          </span>
-                        ) : !c.hash ? (
-                          // 契約上excluded以外はhashを持つはずだが、欠損時は承認不可として安全側に倒す
-                          <span className="text-slate-400">hashなし（承認不可）</span>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirm({ kind: "approve", candidate: c });
-                            }}
-                            disabled={busy || !!killSwitch}
-                            className="rounded border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-                          >
-                            承認（明朝ゲートで自動発注）
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                    {isOpen && (
-                      <tr>
-                        <td colSpan={9} className="p-0">
-                          <ExecCandidateDetail
-                            ec={c}
-                            candidate={candidateMap.get(c.jq_code)}
-                            onScreen={onScreen}
-                          />
-                        </td>
-                      </tr>
-                    )}
-                    </Fragment>
-                  );
-                })}
+                        {showRest ? "▲ その他の候補を折りたたむ" : `▼ その他の候補 ${rest.length}件を表示`}
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {showRest && rest.map(renderCandidateRow)}
+
+                {/* 見送り行（ガード除外等・既定閉） */}
+                {excludedRows.length > 0 && (
+                  <tr className="border-t border-slate-100">
+                    <td colSpan={9} className="p-0">
+                      <button
+                        onClick={() => setShowExcluded((v) => !v)}
+                        className="w-full px-2 py-2 text-left text-xs font-medium text-slate-500 hover:bg-slate-50"
+                      >
+                        {showExcluded
+                          ? "▲ 見送り候補を折りたたむ"
+                          : `▼ 上限額不適合・見送り ${excludedRows.length}件を表示`}
+                      </button>
+                    </td>
+                  </tr>
+                )}
+                {showExcluded && excludedRows.map(renderCandidateRow)}
               </tbody>
             </table>
           </div>
