@@ -546,6 +546,8 @@ export interface ExecutionIntent {
 
 export interface ExecutionPosition {
   code: string;
+  // バックエンド実装中（WP-A契約）。未実装期間は undefined/空文字のまま届き得る。
+  name?: string;
   qty: number;
   sellable_qty: number;
 }

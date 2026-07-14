@@ -743,6 +743,38 @@ export default function ExecutionPanel({
         )}
       </div>
 
+      {/* 執行待ち（承認済・未発注）: 「承認して執行待ちになっている銘柄がわかるようにして」対応。
+          候補テーブルより上・ヘッダ直下に置き見落とし防止。approved intent 0件なら非表示。 */}
+      {buyIntents.filter((it) => it.state === "approved").length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 shadow-sm">
+          <p className="mb-2 text-sm font-semibold text-amber-800">
+            ⏳ 執行待ち — 明朝8:55の寄り前ゲートで判定して自動発注
+          </p>
+          <ul className="space-y-1.5 text-xs text-amber-900">
+            {buyIntents
+              .filter((it) => it.state === "approved")
+              .map((it) => (
+                <li
+                  key={it.intent_id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-0.5 rounded bg-white/60 px-2 py-1.5"
+                >
+                  <span className="font-medium">
+                    {it.name}
+                    <span className="ml-1 font-mono text-amber-600">({it.code})</span>
+                  </span>
+                  <span>数量 {fmtInt(it.qty)}株</span>
+                  <span>
+                    寄指上限 {it.limit_price != null ? fmtYen(it.limit_price) : "—"}
+                  </span>
+                  <span>
+                    SLトリガー {it.stop_trigger != null ? fmtYen(it.stop_trigger) : "—"}
+                  </span>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
+
       {/* 操作ボタン */}
       <div className="flex flex-wrap items-center gap-2">
         <button
@@ -1055,7 +1087,10 @@ export default function ExecutionPanel({
                     <tbody>
                       {status.positions.map((p) => (
                         <tr key={p.code} className="border-t border-slate-100">
-                          <td className="whitespace-nowrap px-2 py-2 font-mono text-slate-500">{p.code}</td>
+                          <td className="whitespace-nowrap px-2 py-2">
+                            <span className="font-mono text-slate-500">{p.code}</span>
+                            {p.name && <span className="ml-1">{p.name}</span>}
+                          </td>
                           <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmtInt(p.qty)}</td>
                           <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
                             {fmtInt(p.sellable_qty)}
