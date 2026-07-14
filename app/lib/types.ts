@@ -665,3 +665,29 @@ export interface SpecialSituationsResponse {
   exists: boolean;
   data: SpecialSituationsData | null;
 }
+
+// 候補のLLM精査バッジ（output/candidate_reviews.json）。落選判定エンジン（dossier.ts と同系統の
+// 買い語彙なしスキーマ）を候補一覧に軽量表示するためのバッチ生成物。まだ検証台帳で判定力を
+// 測定中の段階のため、veto（落選）判定でも承認ボタン等は封鎖しない＝最終判断は人間（WP-B仕様）。
+export type CandidateReviewVerdict = "veto" | "pass" | "insufficient";
+export type CandidateReviewConfidence = "high" | "low";
+
+export interface CandidateReview {
+  verdict: CandidateReviewVerdict;
+  confidence: CandidateReviewConfidence;
+  reasons: string[]; // 最大3件
+  one_liner: string;
+  reviewed_at: string; // YYYY-MM-DD
+}
+
+export interface CandidateReviewsData {
+  updated: string; // iso秒
+  reviews: Record<string, CandidateReview>; // key = jq_code（5桁）
+}
+
+// api/candidate-reviews の GET レスポンス。special-situations と同じ exists 流儀
+// （夜バッチ未実行でファイル自体が無い状態と「0件」を区別し、未生成ならバッジ非表示にする）。
+export interface CandidateReviewsResponse {
+  exists: boolean;
+  data: CandidateReviewsData | null;
+}

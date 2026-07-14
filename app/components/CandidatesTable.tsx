@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import type { Candidate } from "@/app/lib/types";
+import type { Candidate, CandidateReview, CandidateReviewsResponse } from "@/app/lib/types";
 import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
 import { setupLabel, TOP_N } from "@/app/lib/constants";
 import { fetchDossierList, dossierWarningBadge, type DossierSummary } from "@/app/lib/dossier";
@@ -10,6 +10,49 @@ import { fetchDilutionFlags, dilutionBadge, type DilutionFlag } from "@/app/lib/
 import { fetchLvhAlerts, lvhBadge, groupLvhAlertsByCode, type LvhAlert } from "@/app/lib/lvh";
 import { marginBadge } from "@/app/lib/margin";
 import { fetchHeldCodes, HELD_NOTE } from "@/app/lib/held";
+
+// 候補のLLM精査バッジ（output/candidate_reviews.json・WP-B）。専用の app/lib ファイルを新設せず
+// この部品として ExecutionPanel.tsx と共有する（両者から import・実装は重複させない。
+// 二重fetchは許容 = 各コンポーネントが自分のマウント時に一度だけ叩く）。
+export const CANDIDATE_REVIEW_TITLE =
+  "LLM落選判定（検証台帳で判定力を測定中・最終判断は人間）";
+
+/** 候補のLLM精査一覧を一度だけ取得（jq_code→review のMap）。未生成/エラー時は空Map。 */
+export async function fetchCandidateReviews(): Promise<Map<string, CandidateReview>> {
+  try {
+    const r = await fetch("/api/candidate-reviews", { cache: "no-store" });
+    if (!r.ok) return new Map();
+    const d = (await r.json()) as CandidateReviewsResponse;
+    if (!d.exists || !d.data) return new Map();
+    return new Map(Object.entries(d.data.reviews ?? {}));
+  } catch {
+    return new Map();
+  }
+}
+
+const REVIEW_TONE: Record<CandidateReview["verdict"], string> = {
+  veto: "bg-rose-100 text-rose-700",
+  pass: "bg-emerald-100 text-emerald-700",
+  insufficient: "bg-slate-100 text-slate-600",
+};
+const REVIEW_LABEL: Record<CandidateReview["verdict"], string> = {
+  veto: "精査: 落選",
+  pass: "精査: 通過",
+  insufficient: "精査: 判定不能",
+};
+
+/** 未精査（review未取得）は非表示。vetoでも承認・発注系ボタンは封鎖しない（呼び出し側の責務）。 */
+export function CandidateReviewBadge({ review }: { review?: CandidateReview | null }) {
+  if (!review) return null;
+  return (
+    <span
+      title={CANDIDATE_REVIEW_TITLE}
+      className={`ml-1.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold cursor-help ${REVIEW_TONE[review.verdict]}`}
+    >
+      {REVIEW_LABEL[review.verdict]}
+    </span>
+  );
+}
 
 // 精査/ウォッチ追加ボタン共通 props（Discover.tsx / StockScreener.tsx と同じフローを移植）
 type ActionProps = {
@@ -154,6 +197,7 @@ function CandidateCard({
   dossierCall,
   dilutionFlags,
   lvhAlerts,
+  review,
   onScreen,
   watched,
   onWatchAdd,
@@ -169,6 +213,7 @@ function CandidateCard({
   dossierCall?: string | null;
   dilutionFlags?: DilutionFlag[] | null;
   lvhAlerts?: LvhAlert[] | null;
+  review?: CandidateReview | null;
 } & ActionProps) {
   const dimmed = !c.edge_aligned;
   return (
@@ -199,6 +244,7 @@ function CandidateCard({
           <DilutionWarning flags={dilutionFlags} />
           <LvhWarning alerts={lvhAlerts} />
           <MarginBadge c={c} />
+          <CandidateReviewBadge review={review} />
           {held && (
             <span title={HELD_NOTE}
                   className="ml-1.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 cursor-help">
@@ -348,6 +394,12 @@ export default function CandidatesTable({
     fetchHeldCodes().then(setHeldCodes);
   }, []);
 
+  // 候補のLLM精査バッジ（WP-B）: 一覧を一度だけ取得。未生成時は空Map＝全行バッジ非表示。
+  const [reviewMap, setReviewMap] = useState<Map<string, CandidateReview>>(new Map());
+  useEffect(() => {
+    fetchCandidateReviews().then(setReviewMap);
+  }, []);
+
   // 既存ウォッチ銘柄（Discover.tsx / StockScreener.tsx と同じ「追加済み」判定フロー）
   const [watchedCodes, setWatchedCodes] = useState<Set<string>>(new Set());
   const [addingWatchCode, setAddingWatchCode] = useState<string | null>(null);
@@ -449,6 +501,7 @@ export default function CandidatesTable({
                   dossierCall={dossierMap.get(c.code)?.verdict_call}
                   dilutionFlags={dilutionMap[c.code]}
                   lvhAlerts={lvhMap.get(c.code)}
+                  review={reviewMap.get(c.code)}
                   onScreen={onScreen}
                   watched={watchedCodes.has(c.code)}
                   onWatchAdd={addToWatch}
@@ -493,6 +546,7 @@ export default function CandidatesTable({
                       dossierCall={dossierMap.get(c.code)?.verdict_call}
                       dilutionFlags={dilutionMap[c.code]}
                       lvhAlerts={lvhMap.get(c.code)}
+                      review={reviewMap.get(c.code)}
                       onScreen={onScreen}
                       watched={watchedCodes.has(c.code)}
                       onWatchAdd={addToWatch}
@@ -521,6 +575,7 @@ function FragmentRow({
   dossierCall,
   dilutionFlags,
   lvhAlerts,
+  review,
   onScreen,
   watched,
   onWatchAdd,
@@ -537,6 +592,7 @@ function FragmentRow({
   dossierCall?: string | null;
   dilutionFlags?: DilutionFlag[] | null;
   lvhAlerts?: LvhAlert[] | null;
+  review?: CandidateReview | null;
 } & ActionProps) {
   const dimmed = !c.edge_aligned;
   return (
@@ -560,6 +616,7 @@ function FragmentRow({
             <DilutionWarning flags={dilutionFlags} />
             <LvhWarning alerts={lvhAlerts} />
             <MarginBadge c={c} />
+            <CandidateReviewBadge review={review} />
           {held && (
             <span title={HELD_NOTE}
                   className="ml-1.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 cursor-help">

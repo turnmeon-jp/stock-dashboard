@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type {
   Candidate,
+  CandidateReview,
   ExecutionCandidate,
   ExecutionIntent,
   ExecutionNeedStop,
@@ -11,6 +12,9 @@ import type {
 } from "@/app/lib/types";
 import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
 import { setupLabel, TOP_N } from "@/app/lib/constants";
+// 候補のLLM精査バッジ（WP-B）。専用 lib ファイルを新設せず CandidatesTable.tsx の共有部品を
+// そのまま使う（実装を重複させない・二重fetchは許容）。
+import { CandidateReviewBadge, fetchCandidateReviews } from "@/app/components/CandidatesTable";
 
 // モード→バッジ色（dry_run=地味・demo=注意・live=強調。誤発注防止のため live は特に目立たせる）
 function modeTone(mode: string): string {
@@ -178,10 +182,12 @@ function ConfirmSheet({
 function ExecCandidateDetail({
   ec,
   candidate,
+  review,
   onScreen,
 }: {
   ec: ExecutionCandidate;
   candidate?: Candidate;
+  review?: CandidateReview | null;
   onScreen?: (code: string) => void;
 }) {
   return (
@@ -271,6 +277,28 @@ function ExecCandidateDetail({
         </p>
       )}
 
+      {/* LLM精査（output/candidate_reviews.json・WP-B）。veto判定でも承認自体は封鎖しない＝
+          最終判断は人間。未精査（review未取得）はセクション自体を出さない。 */}
+      {review && (
+        <div className="mb-2 rounded border border-slate-200 bg-white px-3 py-2">
+          <div className="mb-1 flex flex-wrap items-center gap-1.5">
+            <span className="text-slate-400">精査</span>
+            <CandidateReviewBadge review={review} />
+            <span className="text-[10px] text-slate-400">
+              確信度{review.confidence === "high" ? "高" : "低"} ・ {review.reviewed_at}
+            </span>
+          </div>
+          {review.one_liner && <p className="mb-1 text-slate-700">{review.one_liner}</p>}
+          {review.reasons && review.reasons.length > 0 && (
+            <ul className="list-disc space-y-0.5 pl-4 text-slate-600">
+              {review.reasons.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {/* jq_code欠損（旧データ）では遷移先が /stock/undefined になるためボタン自体を出さない */}
       {ec.jq_code && (
         <div className="flex flex-wrap gap-2">
@@ -322,6 +350,12 @@ export default function ExecutionPanel({
 
   // 候補行の詳細展開（開いている jq_code。1件のみ・CandidatesTable と同じ単一アコーディオン）
   const [openCode, setOpenCode] = useState<string | null>(null);
+
+  // 候補のLLM精査バッジ（WP-B）: 一覧を一度だけ取得。未生成時は空Map＝全行バッジ非表示。
+  const [reviewMap, setReviewMap] = useState<Map<string, CandidateReview>>(new Map());
+  useEffect(() => {
+    fetchCandidateReviews().then(setReviewMap);
+  }, []);
 
   // 候補の絞り込み表示: 既定=優先上位TOP_N件のみ。6件目以降と見送り行は折りたたみ（既定閉）
   const [showRest, setShowRest] = useState(false);
@@ -590,7 +624,8 @@ export default function ExecutionPanel({
               </span>
             )}
             <span className="font-mono text-slate-500">{c.code}</span>{" "}
-            <span className={isExcluded ? "" : "font-medium text-slate-800"}>{c.name}</span>{" "}
+            <span className={isExcluded ? "" : "font-medium text-slate-800"}>{c.name}</span>
+            <CandidateReviewBadge review={reviewMap.get(c.jq_code)} />{" "}
             <span
               className={`inline-block text-[9px] text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
             >
@@ -655,6 +690,7 @@ export default function ExecutionPanel({
               <ExecCandidateDetail
                 ec={c}
                 candidate={candidateMap.get(c.jq_code)}
+                review={reviewMap.get(c.jq_code)}
                 onScreen={onScreen}
               />
             </td>
