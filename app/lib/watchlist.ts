@@ -50,6 +50,9 @@ export interface WatchItem {
   turnover_oku: number | null;
   // 由来: "manual" = watchlist_codes.json 経由の手動追加 / "domain_screen" = 自動通過
   source?: "manual" | "domain_screen" | null;
+  // 立花自動執行オプトイン（WP-A）。ON=押し目成立時にexecution_plan候補（source:"watchlist"）に載る。
+  // 承認は従来どおり人間。旧データには無いためoptional
+  exec_enabled?: boolean;
   // 合流バッジ（P4）: pipeline/watchlist.py 生成時に domain_screen / scored_universe.json と join。
   // 旧データ（再生成前）には無いことがあるため optional。
   is_domain?: boolean | null;

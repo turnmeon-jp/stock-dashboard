@@ -105,6 +105,8 @@ function Card({
   isOpen,
   onToggle,
   held,
+  onToggleExec,
+  togglingExec,
 }: {
   s: WatchItem;
   onRemove: (s: WatchItem) => void;
@@ -116,6 +118,9 @@ function Card({
   isOpen: boolean;
   onToggle: () => void;
   held?: boolean;
+  // 立花自動執行オプトイン（WP-A）。ヘッダ操作列のトグルボタン用
+  onToggleExec: (s: WatchItem) => void;
+  togglingExec?: boolean;
 }) {
   const o = s.order;
   const dist = s.dist_to_entry_pct;
@@ -141,6 +146,21 @@ function Card({
             <MarginBadge s={s} />
             <ShortBadge s={s} />
             <ConfluenceBadges edgeAligned={s.edge_aligned} growthPass={s.growth_pass} isDomain={s.is_domain} />
+            <button
+              onClick={(e) => {
+                e.stopPropagation(); // ヘッダ全体のカード開閉onClickを止める
+                onToggleExec(s);
+              }}
+              disabled={togglingExec}
+              title="ONにすると押し目成立時に立花の自動執行候補に載ります（承認は従来どおり人間）"
+              className={`rounded px-1 text-[10px] font-semibold disabled:opacity-50 ${
+                s.exec_enabled
+                  ? "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                  : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+              }`}
+            >
+              {s.exec_enabled ? "⚡立花自動" : "立花自動 OFF"}
+            </button>
             {held && (
               <span title={HELD_NOTE}
                     className="rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800 cursor-help">
@@ -293,6 +313,9 @@ export default function WatchList() {
   const [loading, setLoading] = useState(true);
   const [removingCode, setRemovingCode] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  // 立花自動執行オプトイン（WP-A）: トグル中のコード・直近エラー
+  const [togglingExecCode, setTogglingExecCode] = useState<string | null>(null);
+  const [execError, setExecError] = useState<string | null>(null);
   // 展開中の銘柄コード（同時に開くのは1つ。デスクトップも含め既定は折りたたみ）
   const [openCode, setOpenCode] = useState<string | null>(null);
   const [dossierMap, setDossierMap] = useState<Map<string, DossierSummary>>(new Map());
@@ -352,6 +375,42 @@ export default function WatchList() {
       setRemoveError("通信エラー");
     } finally {
       setRemovingCode(null);
+    }
+  }, []);
+
+  // 立花自動執行トグル（WP-A）: 削除ボタンとは異なり非破壊的・即時反映な操作のため
+  // 楽観更新+失敗時ロールバックとする（クリック直後にUI反映→API失敗時のみ元に戻す）。
+  const handleToggleExec = useCallback(async (s: WatchItem) => {
+    const next = !s.exec_enabled;
+    setTogglingExecCode(s.code);
+    setExecError(null);
+    setData((prev) =>
+      prev
+        ? { ...prev, items: prev.items.map((it) => (it.code === s.code ? { ...it, exec_enabled: next } : it)) }
+        : prev
+    );
+    const rollback = () =>
+      setData((prev) =>
+        prev
+          ? { ...prev, items: prev.items.map((it) => (it.code === s.code ? { ...it, exec_enabled: !next } : it)) }
+          : prev
+      );
+    try {
+      const r = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: s.code, action: next ? "exec_on" : "exec_off" }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        rollback();
+        setExecError(d.error ?? "切り替えに失敗しました");
+      }
+    } catch {
+      rollback();
+      setExecError("通信エラー");
+    } finally {
+      setTogglingExecCode(null);
     }
   }, []);
 
@@ -430,6 +489,11 @@ export default function WatchList() {
           {removeError}
         </p>
       )}
+      {execError && (
+        <p className="mb-3 rounded bg-rose-50 border border-rose-200 px-3 py-2 text-sm text-rose-700">
+          {execError}
+        </p>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {data.items.map((s) => (
@@ -445,6 +509,8 @@ export default function WatchList() {
             isOpen={openCode === s.code}
             onToggle={() => setOpenCode(openCode === s.code ? null : s.code)}
             held={heldCodes.has(s.code)}
+            onToggleExec={handleToggleExec}
+            togglingExec={togglingExecCode === s.code}
           />
         ))}
       </div>

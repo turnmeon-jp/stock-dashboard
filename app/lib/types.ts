@@ -509,6 +509,10 @@ export interface ExecutionCandidate {
   // 16桁hex。承認/SL設置APIの整合性確認キー。excluded（見送り）行では null（承認対象外のため未発行）
   hash: string | null;
   excluded: string | null;
+  // 候補の由来: "signals" = signals.json 経由の通常候補 / "watchlist" = ウォッチ銘柄の
+  // 立花自動執行オプトイン（exec_enabled）経由。watchlist由来は配列末尾に追加される。
+  // 旧データ（追加前生成）には無いため optional
+  source?: "signals" | "watchlist" | string;
 }
 
 export interface ExecutionPlan {

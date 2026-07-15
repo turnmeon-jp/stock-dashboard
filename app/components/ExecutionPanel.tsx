@@ -677,10 +677,11 @@ export default function ExecutionPanel({
   // - 順位バッジの母集団 = プラン配列の先頭TOP_N行そのもの（excluded/hashの有無に関わらず）。
   //   execution_plan.json は signals.json と同じ優先順（edge_aligned→売買代金降順）を保持する
   //   ため、これで「今日の候補」タブの緑背景トップ5と常に同一銘柄・同一順位になる。
-  // - primary（既定表示）= トップ5 ∪ pinned行（approved/ordered/doneHashes該当）。
+  // - primary（既定表示）= トップ5 ∪ pinned行（approved/ordered/doneHashes該当 / source:"watchlist"）。
   //   トップ5内のexcluded行もprimaryに出す（グレー+見送り理由のまま。「優先2位が上限額不適合で
   //   見送り」という情報自体が選択の判断材料）。pinnedがプラン再生成後にexcludedへ転じた行も同様
-  //   （自分が承認したものが隠れると不安になるため常に見せる）。
+  //   （自分が承認したものが隠れると不安になるため常に見せる）。source:"watchlist"（ウォッチ銘柄の
+  //   自動執行オプトイン経由）も同じ理由で常にpinned＝順位バッジの母集団（TOP_N）には影響しない。
   // - 「その他の候補」= 6件目以降の発注可能行（pinned除く）
   // - 「見送り」= 6件目以降のexcluded行（pinned除く）
   const planCandidates = plan?.candidates ?? [];
@@ -691,7 +692,11 @@ export default function ExecutionPanel({
   const isPinnedRow = (c: ExecutionCandidate) =>
     orderedCodes.has(c.code) ||
     approvedCodes.has(c.code) ||
-    (c.hash != null && doneHashes.has(c.hash));
+    (c.hash != null && doneHashes.has(c.hash)) ||
+    // ウォッチ銘柄の自動執行オプトイン経由（source:"watchlist"）は常にprimaryへ固定表示する。
+    // オプトインした銘柄が6件目以降の折りたたみ「その他の候補」に隠れると、押し目が成立していても
+    // 気づけずに承認機会を逃すため（該当件数は少数想定なのでTOP_N表示を圧迫しない）。
+    c.source === "watchlist";
   const primary = planCandidates.filter((c) => topRank.has(rowKeyOf(c)) || isPinnedRow(c));
   const others = planCandidates.filter((c) => !topRank.has(rowKeyOf(c)) && !isPinnedRow(c));
   const rest = others.filter((c) => !c.excluded);
@@ -739,7 +744,12 @@ export default function ExecutionPanel({
               </span>
             )}
             <span className="font-mono text-slate-500">{c.code}</span>{" "}
-            <span className={isExcluded ? "" : "font-medium text-slate-800"}>{c.name}</span>
+            <span className={isExcluded ? "" : "font-medium text-slate-800"}>{c.name}</span>{" "}
+            {c.source === "watchlist" && (
+              <span className="rounded bg-sky-100 px-1 py-0.5 text-[9px] font-semibold text-sky-700">
+                ウォッチ
+              </span>
+            )}
             <CandidateReviewBadge review={reviewMap.get(c.jq_code)} />{" "}
             <span
               className={`inline-block text-[9px] text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}

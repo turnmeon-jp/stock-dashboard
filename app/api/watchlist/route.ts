@@ -14,6 +14,21 @@ const PY = path.join(REPO_ROOT, ".venv", "bin", "python");
 // pipeline/screen.py の SEC_CODE/JQ_CODE と同じ許容範囲（最終検証は pipeline.watchlist 側でも行う）。
 const CODE_RE = /^\d{3}[0-9A-Z]0?$/;
 
+// action → pipeline.watchlist CLIフラグ / エラーメッセージ用ラベル（WP-A: exec_on/exec_off追加）
+const ACTION_FLAGS = {
+  add: "--add",
+  remove: "--remove",
+  exec_on: "--exec-on",
+  exec_off: "--exec-off",
+} as const;
+const ACTION_LABELS: Record<keyof typeof ACTION_FLAGS, string> = {
+  add: "追加",
+  remove: "削除",
+  exec_on: "自動執行ONへの切替",
+  exec_off: "自動執行OFFへの切替",
+};
+type Action = keyof typeof ACTION_FLAGS;
+
 export async function GET() {
   const data = await readWatchlist();
   return Response.json(data, { status: data.ok ? 200 : 500 });
@@ -28,16 +43,21 @@ export async function POST(req: Request) {
   }
 
   const code = (body.code ?? "").trim().toUpperCase();
-  const action = body.action;
-  if (action !== "add" && action !== "remove") {
-    return Response.json({ error: "action は add / remove のいずれかです" }, { status: 400 });
+  const action = body.action as Action | undefined;
+  // `in` はプロトタイプ継承キー（"toString"等）も通してしまい、未知actionが400でなく
+  // execFile経路へ進み得る（codexレビューP2）。自身のキーのみ許可する
+  if (!action || !Object.prototype.hasOwnProperty.call(ACTION_FLAGS, action)) {
+    return Response.json(
+      { error: "action は add / remove / exec_on / exec_off のいずれかです" },
+      { status: 400 },
+    );
   }
   if (!CODE_RE.test(code)) {
     return Response.json({ error: `コード形式が不正です: ${code}` }, { status: 400 });
   }
 
   try {
-    await execFileP(PY, ["-m", "pipeline.watchlist", `--${action}`, code], {
+    await execFileP(PY, ["-m", "pipeline.watchlist", ACTION_FLAGS[action], code], {
       cwd: REPO_ROOT,
       timeout: 30_000,
     });
@@ -45,7 +65,7 @@ export async function POST(req: Request) {
     const err = e as { stderr?: string; message?: string };
     const detail = (err.stderr || err.message || "unknown error").trim().slice(0, 500);
     return Response.json(
-      { error: `${action === "add" ? "追加" : "削除"}に失敗しました: ${detail}` },
+      { error: `${ACTION_LABELS[action]}に失敗しました: ${detail}` },
       { status: 500 },
     );
   }
