@@ -2,7 +2,7 @@ import { promises as fs, existsSync } from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { ChartData, ChartIndex } from "@/app/lib/types";
+import type { ChartData } from "@/app/lib/types";
 
 const execFileP = promisify(execFile);
 
@@ -32,20 +32,6 @@ const JQ_CODE = /^\d{3}[0-9A-Za-z]0$/;
 // 直近に生成失敗したコードの否定キャッシュ（無効コード連打で Python を都度起動しないため）。
 const negCache = new Map<string, number>();
 const NEG_TTL_MS = 60_000;
-
-// _index.json を読み込む。未生成時は空の一覧を返す。
-export async function readChartIndex(): Promise<ChartIndex> {
-  try {
-    const raw = await fs.readFile(path.join(CHARTS_DIR, "_index.json"), "utf-8");
-    const d = JSON.parse(raw) as Partial<ChartIndex>;
-    return {
-      as_of: d.as_of ?? null,
-      charts: Array.isArray(d.charts) ? d.charts : [],
-    };
-  } catch {
-    return { as_of: null, charts: [] };
-  }
-}
 
 async function readChartFile(code: string): Promise<ChartData | null> {
   try {

@@ -2,46 +2,43 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Candidate } from "@/app/lib/types";
-import CandidatesTable from "./CandidatesTable";
-import ChartGrid from "./ChartGrid";
 import PaperTrade from "./PaperTrade";
 import SystemGuide from "./SystemGuide";
 import ExitMonitor from "./ExitMonitor";
 import StockScreener from "./StockScreener";
 import Discover from "./Discover";
 import WatchList from "./WatchList";
-import EntryFunnel from "./EntryFunnel";
 import DisclosureBanner from "./DisclosureBanner";
 import ActionQueue from "./ActionQueue";
 import LedgerReport from "./LedgerReport";
 import ExecutionPanel from "./ExecutionPanel";
 import SpecialSituations from "./SpecialSituations";
 
-type Tab = "candidates" | "funnel" | "watch" | "discover" | "exit" | "screen" | "charts" | "paper" | "ledger" | "special" | "exec" | "guide";
+type Tab = "watch" | "discover" | "exit" | "screen" | "paper" | "ledger" | "special" | "exec" | "guide";
 
-// 並びは使用頻度順（毎日の中核=出口規律・執行承認・候補確認、随時=発掘系、
-// 参照時のみ=解説）。保有フォローは出口監視タブに集約済み（旧ポートフォリオ
-// タブは2026-07-12削除）。既定タブは readTabFromURL の "candidates"
-// フォールバックで決まり、この配列の順序には依存しない。
+// 立花自動執行を主体に再編（2026-07-15）。今日の候補/チャート一覧/エントリー厳選の3タブは
+// 自動執行タブ（承認→明朝ゲートで自動発注）に機能統合済みのため廃止。
+// 並びは使用頻度順（毎日の中核=自動執行・出口規律、随時=検証/特殊状況/発掘系、
+// 参照時のみ=解説）。既定タブは readTabFromURL の "exec" フォールバックで決まり、
+// この配列の順序には依存しない。
 const TAB_DEFS: { key: Tab; label: string }[] = [
-  { key: "exit",       label: "出口監視" },
   { key: "exec",       label: "自動執行" },
-  { key: "candidates", label: "今日の候補" },
+  { key: "exit",       label: "出口監視" },
   { key: "watch",      label: "ウォッチ" },
-  { key: "funnel",     label: "エントリー厳選" },
-  { key: "paper",      label: "ペーパートレード" },
   { key: "ledger",     label: "検証" },
   { key: "special",    label: "特殊状況" },
   { key: "discover",   label: "発掘" },
   { key: "screen",     label: "気になる銘柄" },
-  { key: "charts",     label: "チャート一覧" },
+  { key: "paper",      label: "ペーパートレード" },
   { key: "guide",      label: "解説" },
 ];
 
+// 廃止タブ（candidates/funnel/charts）を指す旧URL・ブックマークは既定タブ "exec" へ
+// フォールバックする（TAB_DEFS に無いキーは無条件で "exec" 扱い）。
 function readTabFromURL(): Tab {
-  if (typeof window === "undefined") return "candidates";
+  if (typeof window === "undefined") return "exec";
   const raw = new URLSearchParams(window.location.search).get("tab");
-  return TAB_DEFS.some((d) => d.key === raw) ? (raw as Tab) : "candidates";
+  return TAB_DEFS.some((d) => d.key === raw) ? (raw as Tab) : "exec";
 }
 
 export default function DashboardTabs({
@@ -57,9 +54,9 @@ export default function DashboardTabs({
   header?: React.ReactNode;
   regimeBanner?: React.ReactNode;
 }) {
-  // SSR は常に "candidates"。クライアントで URL を読んで同期する（hydration mismatch 回避）
-  const [tab, setTab] = useState<Tab>("candidates");
-  const [mounted, setMounted] = useState<Set<Tab>>(() => new Set<Tab>(["candidates"]));
+  // SSR は常に "exec"。クライアントで URL を読んで同期する（hydration mismatch 回避）
+  const [tab, setTab] = useState<Tab>("exec");
+  const [mounted, setMounted] = useState<Set<Tab>>(() => new Set<Tab>(["exec"]));
 
   // マウント後に URL のタブ値を読み取る（useSearchParams を使わない = Suspense なし）
   useEffect(() => {
@@ -83,7 +80,7 @@ export default function DashboardTabs({
     setTab(t);
     setMounted((prev) => (prev.has(t) ? prev : new Set([...prev, t])));
     // Next.js ルーターを使わず URL だけ更新（Suspense サイクルを完全に回避）
-    const url = t === "candidates" ? location.pathname : `${location.pathname}?tab=${t}`;
+    const url = t === "exec" ? location.pathname : `${location.pathname}?tab=${t}`;
     window.history.pushState({}, "", url);
   }, []);
 
@@ -138,24 +135,6 @@ export default function DashboardTabs({
 
       {/* lazy-mount: 初回アクティブ化まで DOM に追加しない
           一度マウントされたら display:none で保持（autoSize がゼロ幅を読まない） */}
-      {mounted.has("candidates") && (
-        <div style={{ display: tab === "candidates" ? "block" : "none" }}>
-          {message && (
-            <p className="mb-3 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
-              {message}
-            </p>
-          )}
-          <CandidatesTable candidates={candidates} onScreen={requestScreen} />
-          <p className="mt-3 text-xs text-slate-400">
-            緑背景（上位5件）が集中対象。タップで注文プラン表示。詳細ボタンでチャートを確認。
-          </p>
-        </div>
-      )}
-      {mounted.has("funnel") && (
-        <div style={{ display: tab === "funnel" ? "block" : "none" }}>
-          <EntryFunnel />
-        </div>
-      )}
       {mounted.has("watch") && (
         <div style={{ display: tab === "watch" ? "block" : "none" }}>
           <WatchList />
@@ -176,11 +155,6 @@ export default function DashboardTabs({
           <StockScreener autoCode={screenCode} onConsumed={() => setScreenCode(null)} />
         </div>
       )}
-      {mounted.has("charts") && (
-        <div style={{ display: tab === "charts" ? "block" : "none" }}>
-          <ChartGrid />
-        </div>
-      )}
       {mounted.has("paper") && (
         <div style={{ display: tab === "paper" ? "block" : "none" }}>
           <PaperTrade candidates={candidates} />
@@ -198,6 +172,12 @@ export default function DashboardTabs({
       )}
       {mounted.has("exec") && (
         <div style={{ display: tab === "exec" ? "block" : "none" }}>
+          {/* signals.json の鮮度警告バナー（旧・今日の候補タブ先頭から移設） */}
+          {message && (
+            <p className="mb-3 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+              {message}
+            </p>
+          )}
           <ExecutionPanel candidates={candidates} onScreen={requestScreen} />
         </div>
       )}

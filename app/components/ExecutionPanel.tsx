@@ -12,9 +12,9 @@ import type {
 } from "@/app/lib/types";
 import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
 import { setupLabel, TOP_N } from "@/app/lib/constants";
-// 候補のLLM精査バッジ（WP-B）。専用 lib ファイルを新設せず CandidatesTable.tsx の共有部品を
-// そのまま使う（実装を重複させない・二重fetchは許容）。
-import { CandidateReviewBadge, fetchCandidateReviews } from "@/app/components/CandidatesTable";
+// 候補のLLM精査バッジ（WP-B）。app/lib/candidateReviews.tsx の共有部品を使う
+// （実装を重複させない・二重fetchは許容）。
+import { CandidateReviewBadge, fetchCandidateReviews } from "@/app/lib/candidateReviews";
 
 // モード→バッジ色（dry_run=地味・demo=注意・live=強調。誤発注防止のため live は特に目立たせる）
 function modeTone(mode: string): string {
@@ -184,11 +184,21 @@ function ExecCandidateDetail({
   candidate,
   review,
   onScreen,
+  watched,
+  onWatchAdd,
+  addingWatch,
+  watchErrorMsg,
 }: {
   ec: ExecutionCandidate;
   candidate?: Candidate;
   review?: CandidateReview | null;
   onScreen?: (code: string) => void;
+  // ウォッチ追加（CandidatesTable.tsx の addWatch と同じPOST先・楽観制御を移植。
+  // jq_code=5桁のJ-Quantsコードを渡す＝/api/watchlist の CODE_RE が受理する形式）
+  watched?: boolean;
+  onWatchAdd?: (jqCode: string) => void;
+  addingWatch?: boolean;
+  watchErrorMsg?: string | null;
 }) {
   return (
     <div className="border-t border-slate-100 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700 sm:p-4">
@@ -316,8 +326,24 @@ function ExecCandidateDetail({
               この銘柄を精査 →
             </button>
           )}
+          {onWatchAdd && (
+            watched ? (
+              <span className="inline-flex items-center rounded border border-emerald-200 px-3 py-1.5 text-xs font-medium text-emerald-600">
+                ✓ ウォッチ追加済み
+              </span>
+            ) : (
+              <button
+                onClick={() => onWatchAdd(ec.jq_code)}
+                disabled={addingWatch}
+                className="rounded border border-emerald-300 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+              >
+                {addingWatch ? "追加中…" : "☆ ウォッチに追加"}
+              </button>
+            )
+          )}
         </div>
       )}
+      {watchErrorMsg && <p className="mt-1 text-[10px] text-rose-600">{watchErrorMsg}</p>}
     </div>
   );
 }
@@ -355,6 +381,40 @@ export default function ExecutionPanel({
   const [reviewMap, setReviewMap] = useState<Map<string, CandidateReview>>(new Map());
   useEffect(() => {
     fetchCandidateReviews().then(setReviewMap);
+  }, []);
+
+  // 既存ウォッチ銘柄（CandidatesTable.tsx から移植した「追加済み」判定フロー）
+  const [watchedCodes, setWatchedCodes] = useState<Set<string>>(new Set());
+  const [addingWatchCode, setAddingWatchCode] = useState<string | null>(null);
+  const [watchError, setWatchError] = useState<{ code: string; message: string } | null>(null);
+
+  useEffect(() => {
+    fetch("/api/watchlist", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: { items?: { code: string }[] }) => setWatchedCodes(new Set((d.items ?? []).map((x) => x.code))))
+      .catch(() => {});
+  }, []);
+
+  const addToWatch = useCallback(async (code: string) => {
+    setAddingWatchCode(code);
+    setWatchError(null);
+    try {
+      const r = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, action: "add" }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        setWatchError({ code, message: d.error ?? "ウォッチ追加に失敗しました" });
+        return;
+      }
+      setWatchedCodes((prev) => new Set(prev).add(code));
+    } catch {
+      setWatchError({ code, message: "通信エラー" });
+    } finally {
+      setAddingWatchCode(null);
+    }
   }, []);
 
   // 候補の絞り込み表示: 既定=優先上位TOP_N件のみ。6件目以降と見送り行は折りたたみ（既定閉）
@@ -692,6 +752,10 @@ export default function ExecutionPanel({
                 candidate={candidateMap.get(c.jq_code)}
                 review={reviewMap.get(c.jq_code)}
                 onScreen={onScreen}
+                watched={watchedCodes.has(c.jq_code)}
+                onWatchAdd={addToWatch}
+                addingWatch={addingWatchCode === c.jq_code}
+                watchErrorMsg={watchError?.code === c.jq_code ? watchError.message : null}
               />
             </td>
           </tr>
