@@ -28,8 +28,14 @@ const KIND_HINTS: Record<string, string> = {
 };
 
 /** 全タブ共通のページ最上部パネル。output/action_queue.json はバックエンドで並行実装中のため、
- *  未生成の間（exists:false）はパネル自体を描画しない。折りたたみ可・既定は展開。 */
-export default function ActionQueue({ onNavigate }: { onNavigate: (tab: string) => void }) {
+ *  未生成の間（exists:false）はパネル自体を描画しない。折りたたみ可・既定は展開。
+ *  onNavigate の第2引数 code はタブ切替後に該当銘柄の行を自動展開するためのヒント
+ *  （2026-07-15 追加・後方互換: 受け手が無視しても動作は変わらない）。 */
+export default function ActionQueue({
+  onNavigate,
+}: {
+  onNavigate: (tab: string, code?: string) => void;
+}) {
   const [data, setData] = useState<ActionQueueResponse | null>(null);
   const [open, setOpen] = useState(true);
   // 個々の行の全文展開（スマホのみ意味を持つ。indexキー管理でシンプルに）
@@ -87,9 +93,9 @@ export default function ActionQueue({ onNavigate }: { onNavigate: (tab: string) 
                     <div
                       role="button"
                       tabIndex={0}
-                      onClick={() => onNavigate(it.tab)}
+                      onClick={() => onNavigate(it.tab, it.code)}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") onNavigate(it.tab);
+                        if (e.key === "Enter" || e.key === " ") onNavigate(it.tab, it.code);
                       }}
                       className={`flex w-full cursor-pointer flex-col gap-0.5 rounded px-2 py-1.5 text-left text-xs sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-2 sm:text-sm ${
                         urgent

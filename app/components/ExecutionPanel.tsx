@@ -358,12 +358,18 @@ type ConfirmState =
 export default function ExecutionPanel({
   candidates = [],
   onScreen,
+  focusCode,
+  onFocusConsumed,
 }: {
   // signals.json の全候補（DashboardTabs から渡される）。execution_plan の候補(jq_code)と
   // 突合して詳細指標を補完表示するために使う（詳細動線の唯一のデータソース＝追加fetch不要）。
   candidates?: Candidate[];
   // 「この銘柄を精査」→気になる銘柄タブへの動線（Discover.tsx / CandidatesTable.tsx と同じ流儀）
   onScreen?: (code: string) => void;
+  // 今日のアクション→該当候補行の自動展開（DashboardTabs から。jq_code 5桁 or 立花4桁コード）。
+  // 処理後は onFocusConsumed で消費を通知する（StockScreener の autoCode/onConsumed と同じ流儀）
+  focusCode?: string | null;
+  onFocusConsumed?: () => void;
 }) {
   const [data, setData] = useState<ExecutionResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -429,6 +435,54 @@ export default function ExecutionPanel({
 
   // 承認/SL設置に成功したhash（同一プラン内での再送信防止。TradeReportForm/ExitMonitor流儀）
   const [doneHashes, setDoneHashes] = useState<Set<string>>(new Set());
+
+  // focusCode で展開した行へのスクロール予約。展開state（openCode/showRest等）と同一バッチで
+  // 積み、再描画で行DOMが確定した後の effect で scrollIntoView する（折りたたみ内の行は
+  // 展開前にDOMに存在しないため、直接スクロールできない）。
+  const [scrollKey, setScrollKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!scrollKey) return;
+    document
+      .getElementById(`exec-cand-${scrollKey}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setScrollKey(null);
+  }, [scrollKey]);
+
+  // 今日のアクション→該当候補行の自動展開（2026-07-15 実運用指摘対応）。
+  // focusCode は jq_code 5桁（"65010"/"130A0"）と立花4桁（"6501"）の両形式があり得るため、
+  // 5桁末尾0を落とした正規形でも比較する。候補に無いcode（保有銘柄等のアクション）は
+  // 何もせず consume だけする（クラッシュ・誤展開の防止）。
+  useEffect(() => {
+    if (!focusCode) return;
+    if (loading) return; // プラン読み込み完了まで待つ（consumeせず次のdata到着で再評価）
+    const cands = data?.plan?.candidates ?? [];
+    const strip = (s: string) => (s.length === 5 && s.endsWith("0") ? s.slice(0, 4) : s);
+    const want = strip(focusCode);
+    const idx = cands.findIndex(
+      (c) => strip(c.jq_code || "") === want || strip(c.code) === want,
+    );
+    if (idx >= 0) {
+      const c = cands[idx];
+      const key = c.jq_code || c.code; // renderCandidateRow の rowKeyOf と同一規則
+      setOpenCode(key);
+      // TOP_N圏外の行は折りたたみグループ内にある。ただし承認/発注済み（pinned）は
+      // primary に常時表示されるため展開不要（グループ判定は render 側の分類規則と同一）。
+      if (idx >= TOP_N) {
+        const dead = new Set(["error", "cancelled", "expired"]);
+        const pinned =
+          (data?.status?.intents ?? []).some(
+            (it) => it.side === "buy" && it.code === c.code && !dead.has(it.state),
+          ) ||
+          (c.hash != null && doneHashes.has(c.hash));
+        if (!pinned) {
+          if (c.excluded) setShowExcluded(true);
+          else setShowRest(true);
+        }
+      }
+      setScrollKey(key); // 展開の再描画後にスクロール（上のeffect）
+    }
+    onFocusConsumed?.();
+  }, [focusCode, loading, data, doneHashes, onFocusConsumed]);
 
   // 引数なし系オペレーション（ゲート実行/引け後処理/SLラチェット）＋承認直後の結果バナー。
   // TradeReportForm の <pre> 結果表示と同じ流儀（成功=emerald/失敗=rose）。
@@ -667,6 +721,7 @@ export default function ExecutionPanel({
     return (
       <Fragment key={rowKey}>
         <tr
+          id={`exec-cand-${rowKey}`}
           onClick={() => setOpenCode(isOpen ? null : rowKey)}
           title="タップで詳細を表示"
           className={`cursor-pointer border-t border-slate-100 hover:bg-blue-50 ${
@@ -1132,6 +1187,13 @@ export default function ExecutionPanel({
             {/* positions */}
             <div>
               <div className="mb-1 text-xs font-medium text-slate-500">建玉（positions）</div>
+              {/* デモ口座には初期ダミー預りが入っており「保有」に見えてしまうため注記
+                  （2026-07-15 実運用指摘対応）。live/dry_run では出さない */}
+              {status.mode === "demo" && (
+                <p className="mb-1 text-[11px] text-slate-400">
+                  デモ口座の預り（6501/6502/9984はデモ環境の初期ダミーで、実際の保有ではありません）
+                </p>
+              )}
               {status.positions.length === 0 ? (
                 <p className="rounded-lg border border-slate-200 bg-white py-4 text-center text-xs text-slate-400 shadow-sm">
                   建玉はありません。

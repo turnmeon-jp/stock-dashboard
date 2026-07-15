@@ -91,13 +91,19 @@ export default function DashboardTabs({
     switchTab("screen");
   }, [switchTab]);
 
+  // 今日のアクション→自動執行タブの該当候補行を自動展開する動線（screenCode/requestScreen と
+  // 同じ「コードを渡して consume してもらう」パターン。2026-07-15 実運用指摘対応）
+  const [execFocusCode, setExecFocusCode] = useState<string | null>(null);
+  const consumeExecFocus = useCallback(() => setExecFocusCode(null), []);
+
   // 今日のアクション→各タブへの動線。action_queue.json の tab 値は文字列のため、
   // 未知のタブ名（旧データ・バックエンド側の想定違い）は無視して事故を防ぐ。
   // 切替後はタブナビへスクロールする: パネルは最上部に残るため、これが無いと
   // 「切り替わったのに何も起きていないように見える」（特にモバイル）。
   const navRef = useRef<HTMLElement | null>(null);
-  const navigateFromActionQueue = useCallback((tab: string) => {
+  const navigateFromActionQueue = useCallback((tab: string, code?: string) => {
     if (TAB_DEFS.some((d) => d.key === tab)) {
+      if (tab === "exec" && code) setExecFocusCode(code);
       switchTab(tab as Tab);
       navRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -178,7 +184,12 @@ export default function DashboardTabs({
               {message}
             </p>
           )}
-          <ExecutionPanel candidates={candidates} onScreen={requestScreen} />
+          <ExecutionPanel
+            candidates={candidates}
+            onScreen={requestScreen}
+            focusCode={execFocusCode}
+            onFocusConsumed={consumeExecFocus}
+          />
         </div>
       )}
       {mounted.has("guide") && (
