@@ -155,7 +155,10 @@ function TriageActions({
   const [reason, setReason] = useState(DEFAULT_WATCH_REASON);
   const [eventDate, setEventDate] = useState("");
   const [note, setNote] = useState("");
-  const reasonSet = !!s.watch_meta?.reason;
+  // domain_screen は発掘スクリーン通過への自動付与理由で、バックエンドの --renew は
+  // このまま継続を拒否する（人間の理由選択を要求する設計）。未設定と同様にフォームを
+  // 出して5択から選ばせる（codexレビューP2対応）
+  const reasonSet = !!s.watch_meta?.reason && s.watch_meta.reason !== "domain_screen";
   const renewLabel = dormant ? "復帰（継続扱い）" : "継続";
 
   const handleRenewClick = () => {
