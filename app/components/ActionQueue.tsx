@@ -25,6 +25,7 @@ const KIND_HINTS: Record<string, string> = {
   disclosure: "決算等の開示イベントが近い",
   pullback: "押し目・寄成のタイミング到来",
   dossier_thesis: "AIが作ったテーゼ下書きあり（採用は人間が判断）",
+  watch_triage: "ウォッチ棚卸し：継続か除外かの判断が必要（理由未設定/期限到来/見送り連続/イベント日通過）",
 };
 
 /** 全タブ共通のページ最上部パネル。output/action_queue.json はバックエンドで並行実装中のため、

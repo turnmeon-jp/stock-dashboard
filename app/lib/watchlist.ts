@@ -1,5 +1,6 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { WatchMeta } from "./watchReasons";
 
 // ウォッチリスト（pipeline/watchlist.py が生成）。domain_screen 通過銘柄に
 // エントリータイミング＋IFDOCO注文設計を付与したもの。
@@ -68,6 +69,11 @@ export interface WatchItem {
   short_sum?: number | null;
   short_n_filers?: number | null;
   short_as_of?: string | null;
+  // 棚卸し規律（WP-B）: 登録理由・期限・休眠状態。pipeline/watchlist.py が付与。
+  // 移行中の既存銘柄や旧データには無いことがあるため optional（未設定として縮退表示する）。
+  // 型・定数（WATCH_REASON_OPTIONS等）は node:fs非依存の ./watchReasons 側にある
+  // （"use client" コンポーネントが安全にimportできるようにするため。詳細は同ファイル冒頭コメント）。
+  watch_meta?: WatchMeta;
 }
 
 export interface Regime {
