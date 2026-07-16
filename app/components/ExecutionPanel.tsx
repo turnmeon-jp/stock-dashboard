@@ -9,6 +9,7 @@ import type {
   ExecutionIntent,
   ExecutionNeedStop,
   ExecutionResponse,
+  PmGateResult,
 } from "@/app/lib/types";
 import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
 import { setupLabel, TOP_N } from "@/app/lib/constants";
@@ -76,6 +77,16 @@ const GATE_DECISION_LABELS: Record<string, string> = {
   rejected_guard: "ガード拒否",
   error: "エラー",
 };
+
+// 後場ゲート（pm-gate・観測モード）の would_place → バッジ色・ラベル
+// 「発注相当」は実発注と誤読されないよう、寄り前ゲートの実発注色（emerald）とは分け、
+// 観測であることが伝わる amber系にとどめる。
+function pmGateWouldPlaceTone(wouldPlace: boolean): string {
+  return wouldPlace ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500";
+}
+function pmGateWouldPlaceLabel(wouldPlace: boolean): string {
+  return wouldPlace ? "発注相当（観測）" : "見送り";
+}
 
 // 引数なし系オペレーションのボタンラベル（結果バナーの見出しにも流用）
 const OPS_LABELS: Record<string, string> = {
@@ -654,6 +665,12 @@ export default function ExecutionPanel({
   const dailyLimit = status?.daily.limit ?? plan?.guards.daily_order_limit ?? 0;
   const unknownCount = status?.unknown_count ?? plan?.guards.unknown_count ?? 0;
 
+  // 後場ゲート（pm-gate・観測モード）の結果。破損/移行中の execution_status.json で
+  // results が配列でない可能性があるため、寄り前ゲートと同様に配列に畳んでから使う。
+  const pmGateResults: PmGateResult[] = Array.isArray(status?.pm_gate?.results)
+    ? status!.pm_gate!.results
+    : [];
+
   // 既発注/承認済コード（status.intents 由来）。doneHashes はセッション内stateのため、
   // リロード・別タブ・再マウントで承認ボタンが復活してしまう。サーバ側の永続状態から
   // 「有効なbuy intentが存在する銘柄」を導出し、OR判定で二重発注をUI側でも封鎖する
@@ -1137,6 +1154,69 @@ export default function ExecutionPanel({
                       </tbody>
                     </table>
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* 後場ゲート（pm-gate・Phase C+観測モード）。実行した日のみ status.pm_gate が存在。
+                朝の寄り前ゲートで気配見送りになった注文を、後場寄りの気配で記録のみ再判定する
+                （実発注はしない）。results は寄り前ゲートと同様に配列に畳んでから描画。 */}
+            {status.pm_gate && (
+              <div>
+                <div className="mb-1 text-xs font-medium text-slate-400">
+                  後場ゲート（観測）（{status.pm_gate.ran_at}）・記録のみ・発注なし
+                </div>
+                {pmGateResults.length === 0 ? (
+                  <p className="rounded-lg border border-slate-100 bg-white py-3 text-center text-xs text-slate-400 shadow-sm">
+                    対象なし（朝の気配見送りなし）
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto rounded-lg border border-slate-100 bg-white shadow-sm">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-left text-slate-400">
+                          {["銘柄", "気配", "上限", "判定"].map((h, i) => (
+                            <th key={i} className="whitespace-nowrap px-2 py-1.5 font-medium">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pmGateResults.map((r, i) => (
+                          <tr key={`${r.code}:${i}`} className="border-t border-slate-100">
+                            <td className="whitespace-nowrap px-2 py-1.5">
+                              <span className="font-mono text-slate-400">{r.code}</span> {r.name ?? "-"}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-500">
+                              {r.gate_price != null ? fmtInt(r.gate_price) : "-"}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-1.5 text-right font-mono text-slate-500">
+                              {r.limit_price != null ? fmtInt(r.limit_price) : "-"}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-1.5">
+                              <span
+                                className={`rounded px-1.5 py-0.5 font-medium ${pmGateWouldPlaceTone(r.would_place)}`}
+                              >
+                                {pmGateWouldPlaceLabel(r.would_place)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {pmGateResults.some((r) => r?.note) && (
+                  <ul className="mt-1 space-y-0.5 text-[11px] text-slate-400">
+                    {pmGateResults
+                      .filter((r) => r?.note)
+                      .map((r, i) => (
+                        <li key={`${r.code}:${i}`}>
+                          <span className="font-mono">{r.code}</span> {r.note}
+                        </li>
+                      ))}
+                  </ul>
                 )}
               </div>
             )}

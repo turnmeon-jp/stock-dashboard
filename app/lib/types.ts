@@ -590,6 +590,26 @@ export interface ExecutionGate {
   results: ExecutionGateResult[];
 }
 
+// 後場寄り第2ゲート（pm-gate・観測モード）の銘柄別判定。
+// 朝の寄り前ゲートで気配見送り（skipped_gate）になった注文を、後場寄りの気配で
+// 同条件再判定し記録のみ行う（実発注はしない）。
+export interface PmGateResult {
+  code: string;
+  name: string | null;
+  gate_price: number | null; // 後場気配。取得不能時 null
+  limit_price: number | null; // 寄指上限。取得不能時 null
+  would_place: boolean; // 観測: この条件なら発注していたか
+  note: string;
+}
+
+// status.pm_gate は pm-gate を実行した日のみ存在するフィールド（未実行なら undefined）。
+// mode は常に "observe"（実発注なし・記録のみ）。
+export interface ExecutionPmGate {
+  ran_at: string;
+  mode: string;
+  results: PmGateResult[];
+}
+
 export interface ExecutionStatus {
   updated: string;
   mode: ExecutionMode;
@@ -600,6 +620,7 @@ export interface ExecutionStatus {
   positions: ExecutionPosition[];
   need_stop: ExecutionNeedStop[];
   gate?: ExecutionGate;
+  pm_gate?: ExecutionPmGate;
 }
 
 // api/execution の GET レスポンス（未生成/破損は null・200。exit-monitor 流儀）
