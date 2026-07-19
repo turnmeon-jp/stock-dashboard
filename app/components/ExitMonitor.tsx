@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { ExitHolding, ExitMonitorData } from "@/app/lib/types";
+import type { AccountSummary, ExitHolding, ExitMonitorData } from "@/app/lib/types";
+import { fmtYen } from "@/app/lib/format";
 import RealPostmortemSummary from "./RealPostmortemSummary";
 import TradeReportForm from "./TradeReportForm";
 
@@ -115,6 +116,64 @@ function followupRows(h: ExitHolding) {
   }
 
   return rows;
+}
+
+// 口座ラベル・プレースホルダ文言（実弾保有と損益の可視化・2026-07-19）
+const ACCOUNT_LABELS: Record<string, string> = {
+  sbi: "SBI（裁量実弾）",
+  tachibana: "立花（自動実弾）",
+};
+
+/* ---- 口座別サマリカード ---- */
+function AccountSummaryCard({ accountKey, s }: { accountKey: string; s: AccountSummary }) {
+  const label = ACCOUNT_LABELS[accountKey] ?? accountKey;
+  const plTone =
+    (s.pl_yen ?? 0) > 0 ? "text-emerald-600" : (s.pl_yen ?? 0) < 0 ? "text-rose-600" : "text-slate-500";
+
+  if (s.n === 0) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="mb-1 text-sm font-semibold text-slate-700">{label}</div>
+        <p className="py-3 text-center text-xs text-slate-400">
+          {accountKey === "tachibana" ? "保有なし（7/28 実弾開始待ち）" : "保有なし"}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-sm font-semibold text-slate-700">{label}</span>
+        <span className="text-xs text-slate-400">{s.n}件保有</span>
+      </div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+        <div>
+          <span className="text-slate-400">総建値</span>{" "}
+          <span className="font-mono">{fmtYen(s.cost_total)}</span>
+        </div>
+        <div>
+          <span className="text-slate-400">評価額</span>{" "}
+          <span className="font-mono">{s.value_total != null ? fmtYen(s.value_total) : "—"}</span>
+        </div>
+      </div>
+      <div className="mt-1.5">
+        <span className="text-xs text-slate-400">評価損益</span>{" "}
+        <span className={`font-mono text-sm font-semibold ${plTone}`}>
+          {s.pl_yen != null ? `${s.pl_yen > 0 ? "+" : ""}${fmtYen(s.pl_yen)}` : "—"}
+          {s.pl_pct != null && (
+            <span className="ml-1">
+              （{s.pl_pct > 0 ? "+" : ""}
+              {s.pl_pct}%）
+            </span>
+          )}
+        </span>
+      </div>
+      {s.n_valued < s.n && (
+        <p className="mt-1 text-[10px] text-slate-400">（{s.n - s.n_valued}件未評価）</p>
+      )}
+    </div>
+  );
 }
 
 /* ---- スマホ用カード（保有銘柄） ---- */
@@ -290,6 +349,19 @@ export default function ExitMonitor() {
           regime: {data.regime}
         </span>
       </div>
+
+      {/* 口座別サマリカード（実弾保有と損益の可視化・2026-07-19）。account_summary が無い
+          旧データはセクションごと非表示（縮退）。 */}
+      {data.account_summary && (
+        <div className="space-y-1">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {Object.entries(data.account_summary).map(([key, s]) => (
+              <AccountSummaryCard key={key} accountKey={key} s={s} />
+            ))}
+          </div>
+          <p className="text-[10px] text-slate-400">夜バッチ更新（終値ベース）</p>
+        </div>
+      )}
 
       {/* アイコン凡例（一言） */}
       <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-400">

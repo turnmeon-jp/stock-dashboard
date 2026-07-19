@@ -90,12 +90,26 @@ export interface ExitWatch {
   error?: string;
 }
 
+// 口座別サマリ（実弾保有と損益の可視化・2026-07-19）。SBI=裁量実弾 / tachibana=自動実弾。
+// n_valued<n は一部銘柄で現値が取れず評価損益に含められていない（縮退）ことを表す。
+// account_summary 自体が無い旧データもありうる＝表示側はセクションごと非表示にする。
+export interface AccountSummary {
+  n: number; // 保有銘柄数
+  n_valued: number; // うち現値が取れて評価に入った銘柄数
+  cost_total: number; // 総建値
+  value_total: number | null; // 評価額合計（現値が1件も取れなければnull）
+  pl_yen: number | null; // 評価損益（円）
+  pl_pct: number | null; // 評価損益（%）
+}
+
 export interface ExitMonitorData {
   updated: string;
   regime: string;
   holdings: ExitHolding[];
   watchlist: ExitWatch[];
   theme_concentration: Record<string, number>;
+  // 口座別サマリ（夜バッチ更新・終値ベース）。旧データには無いため optional。
+  account_summary?: Record<string, AccountSummary>;
 }
 
 // screen.json のスキーマ（気になる銘柄スクリーナー）
@@ -604,6 +618,13 @@ export interface ExecutionPosition {
   name?: string;
   qty: number;
   sellable_qty: number;
+  // 実弾保有と損益の可視化（2026-07-19）。旧データ（追加前生成）には無いため optional。
+  avg_cost?: number | null; // 建値（平均取得単価）
+  price?: number | null; // 現値
+  price_basis?: "current" | "prev_close" | null; // 現値の種別。夜バッチ更新のため通常は前日終値。
+  market_value?: number | null; // 評価額（price × qty）
+  pl_yen?: number | null; // 評価損益（円）
+  pl_pct?: number | null; // 評価損益（%）
 }
 
 export interface ExecutionNeedStop {

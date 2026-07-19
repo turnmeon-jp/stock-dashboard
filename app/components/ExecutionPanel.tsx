@@ -1318,9 +1318,9 @@ export default function ExecutionPanel({
               )}
             </div>
 
-            {/* positions */}
+            {/* positions（実弾保有と損益の可視化・2026-07-19: 建玉＝立花口座のみ） */}
             <div>
-              <div className="mb-1 text-xs font-medium text-slate-500">建玉（positions）</div>
+              <div className="mb-1 text-xs font-medium text-slate-500">建玉（立花口座）</div>
               {/* デモ口座には初期ダミー預りが入っており「保有」に見えてしまうため注記
                   （2026-07-15 実運用指摘対応）。live/dry_run では出さない */}
               {status.mode === "demo" && (
@@ -1337,7 +1337,7 @@ export default function ExecutionPanel({
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-slate-100 text-left text-slate-600">
-                        {["銘柄", "数量", "売却可能数量"].map((h, i) => (
+                        {["銘柄", "数量", "売却可能数量", "建値", "現値", "評価損益"].map((h, i) => (
                           <th key={i} className="whitespace-nowrap px-2 py-2 font-medium">
                             {h}
                           </th>
@@ -1345,18 +1345,79 @@ export default function ExecutionPanel({
                       </tr>
                     </thead>
                     <tbody>
-                      {status.positions.map((p) => (
-                        <tr key={p.code} className="border-t border-slate-100">
-                          <td className="whitespace-nowrap px-2 py-2">
-                            <span className="font-mono text-slate-500">{p.code}</span>
-                            {p.name && <span className="ml-1">{p.name}</span>}
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmtInt(p.qty)}</td>
-                          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
-                            {fmtInt(p.sellable_qty)}
-                          </td>
-                        </tr>
-                      ))}
+                      {status.positions.map((p) => {
+                        const plTone =
+                          (p.pl_yen ?? 0) > 0
+                            ? "text-emerald-600"
+                            : (p.pl_yen ?? 0) < 0
+                              ? "text-rose-600"
+                              : "text-slate-500";
+                        return (
+                          <tr key={p.code} className="border-t border-slate-100">
+                            <td className="whitespace-nowrap px-2 py-2">
+                              <span className="font-mono text-slate-500">{p.code}</span>
+                              {p.name && <span className="ml-1">{p.name}</span>}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmtInt(p.qty)}</td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                              {fmtInt(p.sellable_qty)}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                              {p.avg_cost != null ? fmtYen(p.avg_cost) : "—"}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                              {p.price != null ? (
+                                <>
+                                  {fmtYen(p.price)}
+                                  {p.price_basis === "prev_close" && (
+                                    <span
+                                      className="ml-1 text-[10px] text-slate-400"
+                                      title="夜バッチ更新のため現値は前日終値ベース"
+                                    >
+                                      （前日終値）
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className={`whitespace-nowrap px-2 py-2 text-right font-mono ${plTone}`}>
+                              {p.pl_yen != null ? (
+                                <>
+                                  {p.pl_yen > 0 ? "+" : ""}
+                                  {fmtYen(p.pl_yen)}
+                                  {p.pl_pct != null && (
+                                    <span className="ml-1">
+                                      （{p.pl_pct > 0 ? "+" : ""}
+                                      {fmtNum(p.pl_pct, 1)}%）
+                                    </span>
+                                  )}
+                                </>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {/* 評価損益の合計行（pl_yenが取れる行のみ合計） */}
+                      {status.positions.some((p) => p.pl_yen != null) && (() => {
+                        const valued = status!.positions.filter((p) => p.pl_yen != null);
+                        const totalPl = valued.reduce((sum, p) => sum + (p.pl_yen ?? 0), 0);
+                        const totalTone = totalPl > 0 ? "text-emerald-600" : totalPl < 0 ? "text-rose-600" : "text-slate-500";
+                        return (
+                          <tr className="border-t border-slate-200 bg-slate-50 font-medium">
+                            <td colSpan={5} className="whitespace-nowrap px-2 py-2 text-right text-slate-500">
+                              評価損益合計（{valued.length}/{status!.positions.length}銘柄）
+                            </td>
+                            <td className={`whitespace-nowrap px-2 py-2 text-right font-mono ${totalTone}`}>
+                              {totalPl > 0 ? "+" : ""}
+                              {fmtYen(totalPl)}
+                            </td>
+                          </tr>
+                        );
+                      })()}
                     </tbody>
                   </table>
                 </div>
