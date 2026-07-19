@@ -95,11 +95,14 @@ function pmGateWouldPlaceLabel(wouldPlace: boolean): string {
 // 異常値（本来ロング候補ではあり得ない）のため null を返し、表示側は「—」に畳む。
 function estimatedLoss(
   c: ExecutionCandidate,
-  riskPerTradeYen: number,
+  riskPerTradeYen: number | null,
 ): { yen: number | null; r: number | null } {
   if (c.stop_loss >= c.limit_price) return { yen: null, r: null };
   const yen = c.shares * (c.limit_price - c.stop_loss);
-  const r = riskPerTradeYen > 0 ? yen / riskPerTradeYen : null;
+  // R換算はmetaのR値が取得できた時のみ表示する（codexレビューP2対応:
+  // 固定値フォールバックだと実運用設定が変わった環境でリスク量を誤表示し、
+  // 承認判断を誤らせる。円額は常に正確なのでそちらだけ出す）
+  const r = riskPerTradeYen != null && riskPerTradeYen > 0 ? yen / riskPerTradeYen : null;
   return { yen, r };
 }
 
@@ -1365,9 +1368,9 @@ export default function ExecutionPanel({
 
       {/* 承認（明朝ゲートで自動発注）: 確認モーダル。
           想定損失（SLまで）＋R換算: R = meta.capital.real_risk_per_trade_yen。
-          meta未取得時のフォールバック=30,000円（config.yaml capital.total 300万×risk_per_trade_pct 1%の現行値と一致）。 */}
+          meta未取得時はR換算を省略し円額のみ表示（誤ったRを見せない・codexレビューP2）。 */}
       {confirm?.kind === "approve" && (() => {
-        const riskPerTradeYen = meta?.capital?.real_risk_per_trade_yen ?? 30_000;
+        const riskPerTradeYen = meta?.capital?.real_risk_per_trade_yen ?? null;
         const loss = estimatedLoss(confirm.candidate, riskPerTradeYen);
         return (
           <ConfirmSheet
