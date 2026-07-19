@@ -320,6 +320,15 @@ export default function ExitMonitor() {
   if (!data || data.holdings.length === 0) {
     return (
       <div className="space-y-5">
+        {/* 保有ゼロでも口座別サマリは出す（codexレビューP2対応: 早期returnがサマリを
+            遮ると「立花=保有なし（開始待ち）」等の空状態カード自体が見えなくなる） */}
+        {data?.account_summary && (
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {Object.entries(data.account_summary).map(([key, s]) => (
+              <AccountSummaryCard key={key} accountKey={key} s={s} />
+            ))}
+          </div>
+        )}
         <p className="py-6 text-center text-slate-400 text-sm">
           出口監視データがありません（<code>python pipeline/exit_monitor.py</code> を実行）。
         </p>
