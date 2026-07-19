@@ -13,6 +13,9 @@ import type {
 } from "@/app/lib/types";
 import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
 import { setupLabel, TOP_N } from "@/app/lib/constants";
+// 資金メタ情報（output/meta.json）。PaperTrade.tsx と同じ配信経路（/api/meta）を共用する。
+// 承認確認ダイアログのR換算（想定損失÷real_risk_per_trade_yen）に使う。
+import type { MetaResponse } from "@/app/lib/meta";
 // 候補のLLM精査バッジ（WP-B）。app/lib/candidateReviews.tsx の共有部品を使う
 // （実装を重複させない・二重fetchは許容）。
 import { CandidateReviewBadge, fetchCandidateReviews } from "@/app/lib/candidateReviews";
@@ -86,6 +89,18 @@ function pmGateWouldPlaceTone(wouldPlace: boolean): string {
 }
 function pmGateWouldPlaceLabel(wouldPlace: boolean): string {
   return wouldPlace ? "発注相当（観測）" : "見送り";
+}
+
+// 承認確認ダイアログの想定損失（SLまで）計算。stop_loss >= limit_price は
+// 異常値（本来ロング候補ではあり得ない）のため null を返し、表示側は「—」に畳む。
+function estimatedLoss(
+  c: ExecutionCandidate,
+  riskPerTradeYen: number,
+): { yen: number | null; r: number | null } {
+  if (c.stop_loss >= c.limit_price) return { yen: null, r: null };
+  const yen = c.shares * (c.limit_price - c.stop_loss);
+  const r = riskPerTradeYen > 0 ? yen / riskPerTradeYen : null;
+  return { yen, r };
 }
 
 // 引数なし系オペレーションのボタンラベル（結果バナーの見出しにも流用）
@@ -400,6 +415,16 @@ export default function ExecutionPanel({
     fetchCandidateReviews().then(setReviewMap);
   }, []);
 
+  // 資金メタ情報（承認確認ダイアログのR換算用）。PaperTrade.tsx と同じ /api/meta を叩く
+  // だけの一度きり取得（執行パネル操作のたびに再取得する必要はない）。
+  const [meta, setMeta] = useState<MetaResponse | null>(null);
+  useEffect(() => {
+    fetch("/api/meta")
+      .then((r) => r.json())
+      .then(setMeta)
+      .catch(() => {});
+  }, []);
+
   // 既存ウォッチ銘柄（CandidatesTable.tsx から移植した「追加済み」判定フロー）
   const [watchedCodes, setWatchedCodes] = useState<Set<string>>(new Set());
   const [addingWatchCode, setAddingWatchCode] = useState<string | null>(null);
@@ -660,6 +685,8 @@ export default function ExecutionPanel({
 
   // plan/status のどちらか欠損でも表示は落ちないよう、ヘッダ情報は両方から補完する
   const mode = plan?.mode ?? status?.mode ?? "dry_run";
+  // live時のみ誤操作防止の視覚強調（常時バナー・確認ダイアログの見出し）を出す派生値。
+  const isLive = mode === "live";
   const killSwitch = status?.kill_switch ?? plan?.guards.kill_switch ?? null;
   const sentToday = status?.daily.sent ?? plan?.guards.sent_today ?? 0;
   const dailyLimit = status?.daily.limit ?? plan?.guards.daily_order_limit ?? 0;
@@ -848,6 +875,14 @@ export default function ExecutionPanel({
 
   return (
     <div className="space-y-5">
+      {/* LIVEモード常時バナー（実弾との誤認防止・2026-07-19実弾運用UI安全セット）。
+          demo/dry_runでは何も出さない＝既存表示を変えない。 */}
+      {isLive && (
+        <div className="rounded-lg bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm">
+          🔴 実弾運用中（live）— 承認は翌朝の実発注になります
+        </div>
+      )}
+
       {/* ヘッダ帯: モード・キルスイッチ・日次枠・応答不明警告・緊急停止 */}
       <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -861,6 +896,12 @@ export default function ExecutionPanel({
             <span className="text-slate-500">
               日次枠 <span className="font-mono font-medium text-slate-700">{sentToday}</span> /{" "}
               <span className="font-mono">{dailyLimit}</span>
+            </span>
+            <span className="text-slate-500">
+              買付余力{" "}
+              <span className="font-mono font-medium text-slate-700">
+                {status?.buying_power != null ? fmtYen(status.buying_power) : "—（dry_run/未取得）"}
+              </span>
             </span>
             {status?.updated && <span className="text-xs text-slate-400">更新: {status.updated}</span>}
           </div>
@@ -1322,41 +1363,58 @@ export default function ExecutionPanel({
         )}
       </div>
 
-      {/* 承認（明朝ゲートで自動発注）: 確認モーダル */}
-      {confirm?.kind === "approve" && (
-        <ConfirmSheet
-          title={`承認: ${confirm.candidate.name}`}
-          tone="bg-emerald-600 hover:bg-emerald-700"
-          confirmLabel="この内容で承認する"
-          busy={busy}
-          error={confirmError}
-          onConfirm={() => void doConfirm()}
-          onClose={closeConfirm}
-          rows={[
-            { label: "コード", value: confirm.candidate.code },
-            { label: "セットアップ", value: confirm.candidate.setup_type },
-            { label: "寄指上限", value: fmtYen(confirm.candidate.limit_price) },
-            {
-              label: "株数",
-              value:
-                confirm.candidate.shares !== confirm.candidate.shares_original
-                  ? `${fmtInt(confirm.candidate.shares)}株（元${fmtInt(confirm.candidate.shares_original)}株）`
-                  : `${fmtInt(confirm.candidate.shares)}株`,
-            },
-            { label: "概算額", value: fmtYen(confirm.candidate.est_cost) },
-            { label: "SLトリガー（約定後に自動設置）", value: fmtYen(confirm.candidate.stop_loss) },
-            { label: "利確目標", value: fmtYen(confirm.candidate.tp_first) },
-            { label: "RS120", value: confirm.candidate.rs120 != null ? `${confirm.candidate.rs120}%` : "-" },
-            { label: "hash", value: confirm.candidate.hash ?? "—" },
-          ]}
-          note="承認後は取り消せません。実際の発注は明朝8:55の寄り前ゲートで気配・悪材料を判定のうえ実行されます。約定した場合、このSL逆指値まで自動設置されます。"
-        />
-      )}
+      {/* 承認（明朝ゲートで自動発注）: 確認モーダル。
+          想定損失（SLまで）＋R換算: R = meta.capital.real_risk_per_trade_yen。
+          meta未取得時のフォールバック=30,000円（config.yaml capital.total 300万×risk_per_trade_pct 1%の現行値と一致）。 */}
+      {confirm?.kind === "approve" && (() => {
+        const riskPerTradeYen = meta?.capital?.real_risk_per_trade_yen ?? 30_000;
+        const loss = estimatedLoss(confirm.candidate, riskPerTradeYen);
+        return (
+          <ConfirmSheet
+            title={
+              isLive
+                ? `承認の確認（🔴実弾）: ${confirm.candidate.name}`
+                : `承認: ${confirm.candidate.name}`
+            }
+            tone="bg-emerald-600 hover:bg-emerald-700"
+            confirmLabel="この内容で承認する"
+            busy={busy}
+            error={confirmError}
+            onConfirm={() => void doConfirm()}
+            onClose={closeConfirm}
+            rows={[
+              { label: "コード", value: confirm.candidate.code },
+              { label: "セットアップ", value: confirm.candidate.setup_type },
+              { label: "寄指上限", value: fmtYen(confirm.candidate.limit_price) },
+              {
+                label: "株数",
+                value:
+                  confirm.candidate.shares !== confirm.candidate.shares_original
+                    ? `${fmtInt(confirm.candidate.shares)}株（元${fmtInt(confirm.candidate.shares_original)}株）`
+                    : `${fmtInt(confirm.candidate.shares)}株`,
+              },
+              { label: "概算額", value: fmtYen(confirm.candidate.est_cost) },
+              { label: "SLトリガー（約定後に自動設置）", value: fmtYen(confirm.candidate.stop_loss) },
+              {
+                label: "想定損失（SLまで）",
+                value:
+                  loss.yen != null
+                    ? `${fmtYen(loss.yen)}${loss.r != null ? `（${loss.r.toFixed(2)}R）` : ""}`
+                    : "—",
+              },
+              { label: "利確目標", value: fmtYen(confirm.candidate.tp_first) },
+              { label: "RS120", value: confirm.candidate.rs120 != null ? `${confirm.candidate.rs120}%` : "-" },
+              { label: "hash", value: confirm.candidate.hash ?? "—" },
+            ]}
+            note="承認後は取り消せません。実際の発注は明朝8:55の寄り前ゲートで気配・悪材料を判定のうえ実行されます。約定した場合、このSL逆指値まで自動設置されます。"
+          />
+        );
+      })()}
 
       {/* ゲート実行: 確認モーダル（発注が起き得る操作） */}
       {confirm?.kind === "open-gate" && (
         <ConfirmSheet
-          title="寄り前ゲートを実行"
+          title={isLive ? "寄り前ゲートを実行（🔴実弾）" : "寄り前ゲートを実行"}
           tone="bg-emerald-600 hover:bg-emerald-700"
           confirmLabel="ゲートを実行する"
           busy={busy}
@@ -1391,7 +1449,7 @@ export default function ExecutionPanel({
       {/* 緊急停止: 確認モーダル（理由入力必須） */}
       {confirm?.kind === "kill" && (
         <ConfirmSheet
-          title="緊急停止"
+          title={isLive ? "緊急停止（🔴実弾）" : "緊急停止"}
           tone="bg-rose-600 hover:bg-rose-700"
           confirmLabel="停止する"
           busy={busy}

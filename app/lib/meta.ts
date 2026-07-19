@@ -9,6 +9,9 @@ const META_PATH = path.join(process.cwd(), "..", "output", "meta.json");
 export interface CapitalInfo {
   real_total: number | null;
   paper_total: number | null;
+  // 実弾の1トレード当たり許容損失（円）。config.yaml capital.risk_per_trade_pct 由来。
+  // 承認確認ダイアログのR換算表示（ExecutionPanel）で使う（2026-07-19 実弾運用UI安全セット）。
+  real_risk_per_trade_yen: number | null;
 }
 
 export interface MetaResponse {
@@ -18,7 +21,11 @@ export interface MetaResponse {
 }
 
 function empty(ok: boolean): MetaResponse {
-  return { ok, generated_at: null, capital: { real_total: null, paper_total: null } };
+  return {
+    ok,
+    generated_at: null,
+    capital: { real_total: null, paper_total: null, real_risk_per_trade_yen: null },
+  };
 }
 
 export async function readMeta(): Promise<MetaResponse> {
@@ -41,6 +48,8 @@ export async function readMeta(): Promise<MetaResponse> {
     capital: {
       real_total: typeof cap.real_total === "number" ? cap.real_total : null,
       paper_total: typeof cap.paper_total === "number" ? cap.paper_total : null,
+      real_risk_per_trade_yen:
+        typeof cap.real_risk_per_trade_yen === "number" ? cap.real_risk_per_trade_yen : null,
     },
   };
 }

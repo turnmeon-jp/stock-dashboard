@@ -616,6 +616,8 @@ export interface ExecutionStatus {
   kill_switch: string | null;
   daily: { sent: number; limit: number };
   unknown_count: number;
+  // 買付余力（円）。demo/live時のみ取得しsync毎に更新。dry_run・取得失敗時はnull。
+  buying_power?: number | null;
   intents: ExecutionIntent[];
   positions: ExecutionPosition[];
   need_stop: ExecutionNeedStop[];
