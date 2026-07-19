@@ -446,6 +446,56 @@ export interface LedgerReportResponse extends LedgerReport {
   message: string | null;
 }
 
+// 執行品質ミニ統計（pipeline/exec_quality.py が生成。output/exec_quality.json）。
+// 7/28からのlive移行の目的＝約定率・スリッページの実測（デモは板寄せ無視の指値即約定のため
+// 測定不能）。dry_runは集計対象外（E2E検証のダミー実行）。
+export interface ExecQualityGate {
+  n_placed: number;
+  n_skipped_gate: number;
+  n_expired: number;
+  n_rejected: number;
+  fill_rate: number | null; // placedのうちfillが観測された率（0-1）。intent_id突合。
+}
+
+export interface ExecQualityFillSummary {
+  slippage_vs_open_median: number | null; // 約定価格-当日始値（生値）の中央値。有効行のみ。
+  slippage_vs_open_mean: number | null;
+  n: number; // 有効行数（表示上限30件適用前の全fillsで計算）
+}
+
+export interface ExecQualityPmGate {
+  n_observed: number;   // 後場寄り第2ゲート（観測モード）の判定回数
+  n_would_place: number; // うち「発注していたはず」の回数
+}
+
+// fills明細1行（新しい順）。limit_priceはgate placed行とintent_id突合、
+// day_openは当日始値（生値O列・normalize_code）。突合/日足が引けない場合はnull。
+export interface ExecQualityFill {
+  date: string | null;
+  code: string | null;
+  side: string | null; // "buy" | "sell"
+  qty: number | null;
+  fill_price: number | null;
+  limit_price: number | null;
+  day_open: number | null;
+  slippage_vs_open: number | null;
+  slippage_vs_limit: number | null;
+}
+
+export interface ExecQualityModeReport {
+  gate: ExecQualityGate;
+  fill_summary: ExecQualityFillSummary;
+  pm_gate: ExecQualityPmGate;
+  fills: ExecQualityFill[]; // 新しい順・最大30行
+}
+
+// api/exec-quality のレスポンス。modesはデータが存在するmode（demo/live）のみキーを持つ
+// （未生成・パース失敗時は modes:{} に畳む。lvh/route.ts と同方針）。
+export interface ExecQualityReport {
+  generated_at: string | null;
+  modes: Record<string, ExecQualityModeReport>;
+}
+
 // 実弾トレードの振り返り＝旧称ポストモーテム（output/real_postmortem.json）。逆解析の基準値（勝率21%・利小損大）と比較する趣旨。
 export interface RealPostmortemTrade {
   code: string | null;

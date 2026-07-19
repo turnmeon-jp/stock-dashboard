@@ -5,8 +5,11 @@ import type {
   LedgerReportResponse,
   LedgerSystemReport,
   LedgerVerdict,
+  ExecQualityReport,
+  ExecQualityModeReport,
+  ExecQualityFill,
 } from "@/app/lib/types";
-import { fmtInt, fmtPct } from "@/app/lib/format";
+import { fmtInt, fmtPct, fmtNum } from "@/app/lib/format";
 
 // 系統キー（pipeline/candidate_ledger.py SOURCES）→ 表示ラベル。未知の系統（今後の追加）は
 // 生キーのままフォールバック表示する（setupLabel と同じ方針。壊れず表示できることを優先）。
@@ -255,94 +258,231 @@ function SystemRow({
   );
 }
 
+// --- 執行品質ミニ統計（pipeline/exec_quality.py・output/exec_quality.json） ---
+// 候補台帳とは独立の統計（gate/fill/pm_gateログの実測）のため、台帳データの有無に関わらず
+// 表示する（章ごと独立にloading/emptyを扱う）。
+
+const MODE_LABELS: Record<string, string> = { live: "本番（実弾）", demo: "デモ" };
+const MODE_ORDER: Record<string, number> = { live: 0, demo: 1 };
+const MODE_TAG_CLS: Record<string, string> = {
+  live: "bg-rose-50 text-rose-700",
+  demo: "bg-slate-100 text-slate-500",
+};
+
+// 約定価格との差（円）→ 符号付き表示。null は薄字「-」
+function fmtSlippage(v: number | null | undefined): string {
+  if (v === null || v === undefined) return "-";
+  return `${v > 0 ? "+" : ""}${fmtNum(v, 1)}円`;
+}
+// 売買方向を踏まえたトーン: 買いは高く約定=不利(赤)・売りは高く約定=有利(緑)。
+// side不明時は判断できないため色を付けない。
+function slippageTone(v: number | null | undefined, side: string | null | undefined): string {
+  if (v === null || v === undefined || v === 0) return "text-slate-500";
+  if (side === "sell") return v > 0 ? "text-emerald-600" : "text-rose-600";
+  if (side === "buy") return v > 0 ? "text-rose-600" : "text-emerald-600";
+  return "text-slate-600";
+}
+
+function FillsTable({ fills }: { fills: ExecQualityFill[] }) {
+  return (
+    <div className="max-h-56 overflow-y-auto overflow-x-auto rounded border border-slate-100">
+      <table className="w-full text-[11px]">
+        <thead className="sticky top-0 bg-slate-100 text-slate-500">
+          <tr className="text-left">
+            <th className="px-2 py-1 font-medium whitespace-nowrap">日付</th>
+            <th className="px-2 py-1 font-medium whitespace-nowrap">銘柄</th>
+            <th className="px-2 py-1 font-medium text-right whitespace-nowrap">約定価格</th>
+            <th className="px-2 py-1 font-medium text-right whitespace-nowrap">寄り値</th>
+            <th className="px-2 py-1 font-medium text-right whitespace-nowrap cursor-help" title="約定価格-当日始値">
+              差
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {fills.map((f, i) => (
+            <tr key={`${f.date ?? ""}-${f.code ?? ""}-${i}`} className="border-t border-slate-100">
+              <td className="px-2 py-1 whitespace-nowrap text-slate-500">{f.date ?? "-"}</td>
+              <td className="px-2 py-1 whitespace-nowrap">
+                {f.code ?? "-"}
+                {f.side === "sell" && <span className="ml-1 text-[9px] text-slate-400">(売)</span>}
+              </td>
+              <td className="px-2 py-1 text-right font-mono">{fmtNum(f.fill_price, 1)}</td>
+              <td className="px-2 py-1 text-right font-mono text-slate-500">{fmtNum(f.day_open, 1)}</td>
+              <td className={`px-2 py-1 text-right font-mono ${slippageTone(f.slippage_vs_open, f.side)}`}>
+                {fmtSlippage(f.slippage_vs_open)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ExecQualityModeCard({ mode, data }: { mode: string; data: ExecQualityModeReport }) {
+  const g = data.gate;
+  const fsum = data.fill_summary;
+  const pg = data.pm_gate;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white shadow-sm p-3 space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-1">
+        <span className={`inline-block rounded px-2 py-0.5 text-xs font-semibold ${MODE_TAG_CLS[mode] ?? "bg-slate-100 text-slate-500"}`}>
+          {MODE_LABELS[mode] ?? mode}
+        </span>
+        <span className="text-[11px] text-slate-400">
+          発注{fmtInt(g.n_placed)}・見送り{fmtInt(g.n_skipped_gate)}・失効{fmtInt(g.n_expired)}・拒否{fmtInt(g.n_rejected)}
+        </span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div className="rounded bg-slate-50 p-2">
+          <div className="text-slate-400 cursor-help" title="発注(placed)のうち約定が観測された割合">約定率</div>
+          <div className="font-mono text-sm text-slate-700">{fmtRate(g.fill_rate)}</div>
+        </div>
+        <div className="rounded bg-slate-50 p-2">
+          <div className="text-slate-400 cursor-help" title="約定価格-当日始値の中央値（有効行のみ）">スリッページ中央値</div>
+          <div className={`font-mono text-sm ${slippageTone(fsum.slippage_vs_open_median, null)}`}>
+            {fmtSlippage(fsum.slippage_vs_open_median)}
+            <span className="ml-1 text-[10px] text-slate-300">n={fmtInt(fsum.n)}</span>
+          </div>
+        </div>
+        <div className="rounded bg-slate-50 p-2">
+          <div className="text-slate-400 cursor-help" title="後場寄り第2ゲート（観測モード）: 発注していたはず件数/観測件数">pm_gate観測</div>
+          <div className="font-mono text-sm text-slate-700">
+            {fmtInt(pg.n_would_place)}/{fmtInt(pg.n_observed)}
+          </div>
+        </div>
+      </div>
+      {data.fills.length > 0 && <FillsTable fills={data.fills} />}
+    </div>
+  );
+}
+
+function ExecQualitySection({ data }: { data: ExecQualityReport | null }) {
+  if (!data || Object.keys(data.modes).length === 0) return null;
+  const modes = Object.entries(data.modes).sort(
+    ([a], [b]) => (MODE_ORDER[a] ?? 9) - (MODE_ORDER[b] ?? 9)
+  );
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-semibold text-slate-700 text-sm">執行品質（実測）</h3>
+        <span className="text-xs text-slate-400">更新: {data.generated_at ?? "-"}</span>
+      </div>
+      <p className="text-xs text-slate-400">
+        寄成執行の約定率・スリッページの実測値。デモは板寄せ無視の指値即約定のため参考値、実弾(live)が本来の測定対象。
+      </p>
+      <div className="space-y-3">
+        {modes.map(([mode, m]) => (
+          <ExecQualityModeCard key={mode} mode={mode} data={m} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function LedgerReport() {
   const [data, setData] = useState<LedgerReportResponse | null>(null);
+  const [execQ, setExecQ] = useState<ExecQualityReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [openSystem, setOpenSystem] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/ledger")
-      .then((r) => r.json())
-      .then((d: LedgerReportResponse) => setData(d))
-      .catch(() => setData(null))
+    Promise.all([
+      fetch("/api/ledger")
+        .then((r) => r.json() as Promise<LedgerReportResponse>)
+        .catch(() => null),
+      fetch("/api/exec-quality")
+        .then((r) => r.json() as Promise<ExecQualityReport>)
+        .catch(() => null),
+    ])
+      .then(([ledgerData, execData]) => {
+        setData(ledgerData);
+        setExecQ(execData);
+      })
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) {
     return <p className="py-6 text-center text-slate-400 text-sm">読み込み中…</p>;
   }
-  if (!data || !data.ok || Object.keys(data.systems).length === 0) {
-    return (
-      <p className="py-6 text-center text-slate-400 text-sm">
-        {data?.message ?? "検証データがありません（pipeline/candidate_ledger.py --report を実行）。"}
-      </p>
-    );
-  }
 
-  const minNPromote = data.ledger_criteria?.min_n_promote ?? 20;
-  const horizons = (data.horizons.length ? data.horizons : [5, 20, 60, 120]).map(String);
+  const hasLedger = !!data && data.ok && Object.keys(data.systems).length > 0;
+  const minNPromote = data?.ledger_criteria?.min_n_promote ?? 20;
+  const horizons = (data?.horizons?.length ? data.horizons : [5, 20, 60, 120]).map(String);
 
-  const rows = Object.entries(data.systems).sort(([, a], [, b]) => {
-    const oa = VERDICT_ORDER[verdictOf(a)];
-    const ob = VERDICT_ORDER[verdictOf(b)];
-    if (oa !== ob) return oa - ob;
-    return (b.verdict_detail?.n ?? 0) - (a.verdict_detail?.n ?? 0);
-  });
+  const rows = hasLedger
+    ? Object.entries((data as LedgerReportResponse).systems).sort(([, a], [, b]) => {
+        const oa = VERDICT_ORDER[verdictOf(a)];
+        const ob = VERDICT_ORDER[verdictOf(b)];
+        if (oa !== ob) return oa - ob;
+        return (b.verdict_detail?.n ?? 0) - (a.verdict_detail?.n ?? 0);
+      })
+    : [];
 
   return (
-    <div className="space-y-4">
-      <CriteriaSummary data={data} />
+    <div className="space-y-6">
+      <ExecQualitySection data={execQ} />
 
-      {!data.has_data && (
-        <p className="text-xs text-slate-400">
-          まだ評価済み（forward確定）の行がありません。発火から日が浅いため既定状態＝全系統「標本不足」。
+      {!hasLedger ? (
+        <p className="py-6 text-center text-slate-400 text-sm">
+          {data?.message ?? "検証データがありません（pipeline/candidate_ledger.py --report を実行）。"}
         </p>
+      ) : (
+        <div className="space-y-4">
+          <CriteriaSummary data={data as LedgerReportResponse} />
+
+          {!data!.has_data && (
+            <p className="text-xs text-slate-400">
+              まだ評価済み（forward確定）の行がありません。発火から日が浅いため既定状態＝全系統「標本不足」。
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+            <span>更新: {data!.generated_at || "-"}</span>
+            <span>台帳行数: {fmtInt(data!.n_ledger_rows)}</span>
+          </div>
+
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 text-left">
+                  <th className="px-3 py-2 font-medium whitespace-nowrap" title="候補の抽出方法（採用条件のパターン）">系統</th>
+                  <th className="px-3 py-2 font-medium whitespace-nowrap" title="この抽出方法を続けるべきかの機械判定（最終判断は人間）">判定</th>
+                  <th className="hidden sm:table-cell px-3 py-2 font-medium text-right whitespace-nowrap cursor-help" title="n＝標本数。判定に使ったトレード件数">
+                    n
+                  </th>
+                  <th
+                    className="hidden sm:table-cell px-3 py-2 font-medium text-right whitespace-nowrap cursor-help"
+                    title="20営業日後、ユニバース中央値と比べた超過リターン"
+                  >
+                    中央値超過(20d)
+                  </th>
+                  <th className="hidden sm:table-cell px-3 py-2 font-medium text-right whitespace-nowrap cursor-help" title="20営業日後、市場平均に勝った割合">
+                    勝率(20d)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(([system, entry]) => (
+                  <SystemRow
+                    key={system}
+                    system={system}
+                    entry={entry}
+                    minNPromote={minNPromote}
+                    horizons={horizons}
+                    open={openSystem === system}
+                    onToggle={() => setOpenSystem(openSystem === system ? null : system)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="text-xs text-slate-400">
+            行タップで5/20/60/120営業日の全ホライズン成績を展開表示。中央値超過リターンはユニバース中央値比（比率）。
+          </p>
+        </div>
       )}
-
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-        <span>更新: {data.generated_at || "-"}</span>
-        <span>台帳行数: {fmtInt(data.n_ledger_rows)}</span>
-      </div>
-
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-slate-100 text-slate-600 text-left">
-              <th className="px-3 py-2 font-medium whitespace-nowrap" title="候補の抽出方法（採用条件のパターン）">系統</th>
-              <th className="px-3 py-2 font-medium whitespace-nowrap" title="この抽出方法を続けるべきかの機械判定（最終判断は人間）">判定</th>
-              <th className="hidden sm:table-cell px-3 py-2 font-medium text-right whitespace-nowrap cursor-help" title="n＝標本数。判定に使ったトレード件数">
-                n
-              </th>
-              <th
-                className="hidden sm:table-cell px-3 py-2 font-medium text-right whitespace-nowrap cursor-help"
-                title="20営業日後、ユニバース中央値と比べた超過リターン"
-              >
-                中央値超過(20d)
-              </th>
-              <th className="hidden sm:table-cell px-3 py-2 font-medium text-right whitespace-nowrap cursor-help" title="20営業日後、市場平均に勝った割合">
-                勝率(20d)
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(([system, entry]) => (
-              <SystemRow
-                key={system}
-                system={system}
-                entry={entry}
-                minNPromote={minNPromote}
-                horizons={horizons}
-                open={openSystem === system}
-                onToggle={() => setOpenSystem(openSystem === system ? null : system)}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <p className="text-xs text-slate-400">
-        行タップで5/20/60/120営業日の全ホライズン成績を展開表示。中央値超過リターンはユニバース中央値比（比率）。
-      </p>
     </div>
   );
 }
