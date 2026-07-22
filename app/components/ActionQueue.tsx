@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import type { ActionQueueItem, ActionQueueResponse } from "@/app/lib/actionQueue";
 
-const short = (code: string) => code.replace(/0$/, "");
+// code はP0執行アラート（exec_need_stop等）・レジーム変化で null（銘柄に紐づかない行）。
+// null.replace はページ全体をクラッシュさせる（2026-07-22実害: SL未設置アラートが
+// 初めて出た夜にダッシュボード全体が落ちた）ため必ずガードする
+const short = (code?: string | null) => (code ? code.replace(/0$/, "") : "");
 
 // priority 1-2 は緊急度が高い扱い（赤系強調）
 const URGENT_PRIORITY = 2;

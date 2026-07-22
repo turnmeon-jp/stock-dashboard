@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import type { DisclosureAlertsResponse } from "@/app/lib/disclosureAlerts";
 
-const short = (code: string) => code.replace(/0$/, "");
+// null耐性はActionQueue.tsxと同じ理由（code無し行でページ全体を落とさない）
+const short = (code?: string | null) => (code ? code.replace(/0$/, "") : "");
 
 // kind → 表示強度。earnings/revision/dilution は強調、buyback/other は控えめ
 function kindTone(kind: string): { label: string; tone: string } {
