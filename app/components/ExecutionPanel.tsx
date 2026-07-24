@@ -709,7 +709,12 @@ export default function ExecutionPanel({
   // Phase C+: approve は「承認のみ」になったため、state="approved"（未発注・ゲート待ち）は
   // 実発注済み(orderedCodes)とは別集合に分け、バッジの文言を出し分ける。
   const DEAD_INTENT_STATES = new Set(["error", "cancelled", "expired"]);
-  const buyIntents = (status?.intents ?? []).filter((it) => it.side === "buy");
+  // 現行モードのintentだけを判定材料にする（2026-07-25: デモ時代の約定済みintentが
+  // live候補の承認ボタンを「発注済」表示で永久に塞ぐ誤判定の修正。mode欠落の旧行は
+  // 現行扱いに縮退＝過剰に塞ぐ方向の安全側）
+  const buyIntents = (status?.intents ?? []).filter(
+    (it) => it.side === "buy" && (!it.mode || it.mode === mode),
+  );
   const approvedCodes = new Set(
     buyIntents.filter((it) => it.state === "approved").map((it) => it.code),
   );

@@ -603,6 +603,9 @@ export interface ExecutionIntent {
   code: string;
   name: string;
   side: string;
+  // intent作成時のmode（dry_run/demo/live）。発注済/承認済バッジの導出を現行モードに
+  // 限定するための材料（2026-07-25追加。旧status行には無い→フィルタ側で現行扱いに縮退）
+  mode?: string | null;
   qty: number;
   state: ExecutionIntentState;
   order_number: string | null;
