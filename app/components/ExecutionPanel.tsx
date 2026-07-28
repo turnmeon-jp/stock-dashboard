@@ -61,6 +61,7 @@ const INTENT_STATE_LABELS: Record<string, string> = {
   error: "エラー",
   cancelled: "取消",
   approved: "ゲート待ち",
+  expired: "失効",
 };
 
 // 寄り前ゲート（Phase C+）の判定結果 → バッジ色・ラベル
@@ -724,6 +725,86 @@ export default function ExecutionPanel({
       .map((it) => it.code),
   );
 
+  // 注文（intents）一覧の肥大対策（2026-07-28 ユーザー要望「リストがどんどん長くなる」）。
+  // 既定表示 = 生きているintent（approved/accepted/partial/unknown）＋ 当日更新分。
+  // 過去の終端intent（失効・取消・約定・エラー）は件数つき折りたたみへ。
+  // unknown は発注全停止のトリガーなので終端扱いせず常時表示（畳んで見落とす事故を防ぐ）。
+  // error は当日のみ既定表示（過去エラーへの実対応は P0 キュー/メール通知側が担う）。
+  // 表示順は更新降順（従来はsqlite挿入順＝古い順で、直近の状態が最下部に沈んでいた）。
+  const TERMINAL_INTENT_STATES = new Set(["filled", "cancelled", "expired"]);
+  const intentsDesc = [...(status?.intents ?? [])].sort((a, b) =>
+    (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
+  );
+  // 「当日」は閲覧ブラウザのTZでなく取引基準TZ（Asia/Tokyo）で判定する（codexレビューP2）。
+  // updated_at はサーバー生成のJSTナイーブ文字列が正だが、オフセット付きISOが来ても壊れない
+  // よう、オフセット無しのみ+09:00を補ってからJST暦日に正規化する。パース不能時は文字列先頭
+  // 10桁に縮退（=従来のprefix比較と同等）。
+  const jstDay = (iso: string | null | undefined): string => {
+    if (!iso) return "";
+    const t = Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}+09:00`);
+    if (Number.isNaN(t)) return iso.slice(0, 10);
+    return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(t));
+  };
+  const intentsToday = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date());
+  const currentIntents: ExecutionIntent[] = [];
+  const pastIntents: ExecutionIntent[] = [];
+  for (const it of intentsDesc) {
+    const isPast =
+      (TERMINAL_INTENT_STATES.has(it.state) || it.state === "error") &&
+      jstDay(it.updated_at) !== intentsToday;
+    (isPast ? pastIntents : currentIntents).push(it);
+  }
+  const renderIntentsTable = (items: ExecutionIntent[]) => (
+    <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-slate-100 text-left text-slate-600">
+            {["銘柄", "side", "数量", "状態", "注文番号", "指値", "逆指値", "更新", "note"].map(
+              (h, i) => (
+                <th key={i} className="whitespace-nowrap px-2 py-2 font-medium">
+                  {h}
+                </th>
+              ),
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((it: ExecutionIntent) => (
+            <tr key={it.intent_id} className="border-t border-slate-100">
+              <td className="whitespace-nowrap px-2 py-2">
+                <span className="font-mono text-slate-500">{it.code}</span> {it.name}
+              </td>
+              <td className="whitespace-nowrap px-2 py-2">{it.side}</td>
+              <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmtInt(it.qty)}</td>
+              <td className="whitespace-nowrap px-2 py-2">
+                <span className={`rounded px-1.5 py-0.5 font-medium ${intentTone(it.state)}`}>
+                  {INTENT_STATE_LABELS[it.state] ?? it.state}
+                </span>
+                {/* 現行モード以外のintent（デモ検証期の遺物など）はモード名を明示して誤読を防ぐ */}
+                {it.mode && it.mode !== mode && (
+                  <span className="ml-1 rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-400">
+                    {it.mode}
+                  </span>
+                )}
+              </td>
+              <td className="whitespace-nowrap px-2 py-2 font-mono text-slate-500">
+                {it.order_number ?? "-"}
+              </td>
+              <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                {it.limit_price != null ? fmtInt(it.limit_price) : "-"}
+              </td>
+              <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                {it.stop_trigger != null ? fmtInt(it.stop_trigger) : "-"}
+              </td>
+              <td className="whitespace-nowrap px-2 py-2 text-slate-400">{it.updated_at}</td>
+              <td className="px-2 py-2 text-slate-500">{it.note ?? ""}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   // 候補の絞り込み表示（2026-07-13 ユーザー要望「候補が多すぎて選びにくい」）。
   // 統一規則（codexレビューP2×2反映）:
   // - 順位バッジの母集団 = プラン配列の先頭TOP_N行そのもの（excluded/hashの有無に関わらず）。
@@ -1270,7 +1351,7 @@ export default function ExecutionPanel({
               </div>
             )}
 
-            {/* intents */}
+            {/* intents（既定=アクティブ+当日更新分・過去の終端intentは折りたたみ） */}
             <div>
               <div className="mb-1 text-xs font-medium text-slate-500">注文（intents）</div>
               {status.intents.length === 0 ? (
@@ -1278,48 +1359,23 @@ export default function ExecutionPanel({
                   注文はまだありません。
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="bg-slate-100 text-left text-slate-600">
-                        {["銘柄", "side", "数量", "状態", "注文番号", "指値", "逆指値", "更新", "note"].map(
-                          (h, i) => (
-                            <th key={i} className="whitespace-nowrap px-2 py-2 font-medium">
-                              {h}
-                            </th>
-                          ),
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {status.intents.map((it: ExecutionIntent) => (
-                        <tr key={it.intent_id} className="border-t border-slate-100">
-                          <td className="whitespace-nowrap px-2 py-2">
-                            <span className="font-mono text-slate-500">{it.code}</span> {it.name}
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-2">{it.side}</td>
-                          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmtInt(it.qty)}</td>
-                          <td className="whitespace-nowrap px-2 py-2">
-                            <span className={`rounded px-1.5 py-0.5 font-medium ${intentTone(it.state)}`}>
-                              {INTENT_STATE_LABELS[it.state] ?? it.state}
-                            </span>
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-2 font-mono text-slate-500">
-                            {it.order_number ?? "-"}
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
-                            {it.limit_price != null ? fmtInt(it.limit_price) : "-"}
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
-                            {it.stop_trigger != null ? fmtInt(it.stop_trigger) : "-"}
-                          </td>
-                          <td className="whitespace-nowrap px-2 py-2 text-slate-400">{it.updated_at}</td>
-                          <td className="px-2 py-2 text-slate-500">{it.note ?? ""}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <>
+                  {currentIntents.length === 0 ? (
+                    <p className="rounded-lg border border-slate-200 bg-white py-3 text-center text-xs text-slate-400 shadow-sm">
+                      アクティブな注文・本日更新分はありません。
+                    </p>
+                  ) : (
+                    renderIntentsTable(currentIntents)
+                  )}
+                  {pastIntents.length > 0 && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs text-slate-400">
+                        過去の注文（{pastIntents.length}件）
+                      </summary>
+                      <div className="mt-1">{renderIntentsTable(pastIntents)}</div>
+                    </details>
+                  )}
+                </>
               )}
             </div>
 
