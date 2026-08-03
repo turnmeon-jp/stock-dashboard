@@ -1,7 +1,6 @@
 import { promises as fs } from "node:fs";
-import { existsSync, openSync, closeSync } from "node:fs";
+import { openSync, closeSync } from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { spawn, execFile, type StdioOptions } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -14,11 +13,8 @@ const PY = path.join(REPO_ROOT, ".venv", "bin", "python");
 const DOSSIER_DIR = path.join(REPO_ROOT, "output", "dossiers");
 const WATCHLIST_PATH = path.join(REPO_ROOT, "output", "watchlist.json");
 const DOMAIN_SCREEN_PATH = path.join(REPO_ROOT, "output", "domain_screen.json");
-const PROMPT_PATH = path.join(REPO_ROOT, "pipeline", "dossier_prompt.md");
 const LOG_DIR = path.join(REPO_ROOT, "logs");
-// 落選判定＋根拠付き調査の質を優先し既定は Opus 4.8。env で上書き可（サブスク管理）。
-const DOSSIER_MODEL = process.env.DOSSIER_MODEL || "claude-opus-4-8";
-// ドシエは Opus 4.8 の長時間ジョブ（最大20分）のため、screen の MAX_ACTIVE(4) とは
+// ドシエは Opus 4.8 の長時間ジョブのため、screen の MAX_ACTIVE(4) とは
 // 独立に同時1件へ絞る（サブスク使用量の暴走防止）。
 const MAX_ACTIVE = 1;
 let active = 0;
@@ -30,25 +26,6 @@ const SEC_CODE_RE = /^\d{3}[0-9A-Z]$/;
 
 function normalizeCode(code: string): string {
   return SEC_CODE_RE.test(code) ? `${code}0` : code;
-}
-
-// dashboard サーバの PATH に ~/.local/bin が無い場合があるため絶対パスで解決
-// （screen/route.ts の resolveClaudeBin と同一実装）。
-function resolveClaudeBin(): string {
-  const cands = [
-    process.env.CLAUDE_BIN,
-    path.join(os.homedir(), ".local", "bin", "claude"),
-    "/usr/local/bin/claude",
-    "/opt/homebrew/bin/claude",
-  ].filter(Boolean) as string[];
-  for (const c of cands) {
-    try {
-      if (existsSync(c)) return c;
-    } catch {
-      /* noop */
-    }
-  }
-  return "claude"; // 最後は PATH 解決に委ねる
 }
 
 interface DossierFile {
@@ -70,7 +47,8 @@ async function readDossierFile(code: string): Promise<DossierFile | null> {
   }
 }
 
-// プロンプト冒頭の {{NAME}} 用（表示のみ。数値・判定は --context 経由の機械値が正）。
+// 202レスポンスに載せる表示用の銘柄名（UIの「◯◯を生成中」表示のみに使う）。
+// プロンプトへ渡す名前は pipeline/dossier.py 側（_display_name）が同じ順で解決する。
 // watchlist → domain_screen の順でキャッシュ済みJSONから引く（新規取得はしない）。
 async function resolveName(code: string): Promise<string | null> {
   try {
@@ -170,23 +148,19 @@ export async function POST(req: Request) {
     return Response.json({ error: `${code} のドシエは生成中です` }, { status: 409 });
   }
 
-  let tmpl: string;
-  try {
-    tmpl = await fs.readFile(PROMPT_PATH, "utf-8");
-  } catch {
-    return Response.json({ error: "プロンプトテンプレートの読込に失敗しました" }, { status: 500 });
-  }
   const name = await resolveName(code);
-  const prompt = tmpl.replaceAll("{{CODE}}", code).replaceAll("{{NAME}}", name ?? code);
-  const bin = resolveClaudeBin();
-  const args = [
-    "-p", prompt, "--model", DOSSIER_MODEL,
-    "--tools", "WebSearch", "WebFetch", "Bash",
-    "--allowedTools", "WebSearch", "WebFetch", "Bash(.venv/bin/python -m pipeline.dossier:*)",
-    "--setting-sources", "", "--strict-mcp-config", "--output-format", "json",
-  ];
+
+  // 生成そのものは pipeline/dossier.py --run-one に委譲する（--batch と同一経路）。
+  // 2026-08-04修正: 旧実装はここで claude CLI を直接組み立てていたが、pipeline 側が
+  // 2026-07-05に「機械コンテキストのプロンプト埋め込み＋最終メッセージのresult回収
+  // （ワーカーの書込権限ゼロ化）」へ移行したのに追従できず、{{CONTEXT_JSON}} 未展開のまま
+  // 起動し、かつ誰も result を回収しないため常に「attach未実行」で error 化していた。
+  // 起動条件を2箇所に持たない＝再発防止の本体。
+  const args = ["-m", "pipeline.dossier", "--run-one", "--code", code];
 
   // 「処理中」エントリを先に作る（--stub は done を上書きしないため二重起動でも安全側）。
+  // --run-one 側も冒頭で stub するが、ここで先に立てておくことで起動直後の GET/二重POSTが
+  // 「未生成」に見える窓を塞ぐ。
   try {
     await execFileP(PY, ["-m", "pipeline.dossier", "--stub", "--code", code], {
       cwd: REPO_ROOT,
@@ -209,8 +183,8 @@ export async function POST(req: Request) {
   const dossierPath = path.join(DOSSIER_DIR, `${code}.json`);
 
   // 終了時の最終防衛: done化されていなければ --finish --error で記録する
-  // （正常終了でも attach 漏れなら「処理中」のまま固まるため、exitCode に関わらず status を確認する。
-  //   pipeline/dossier.py の _run_one（--batch 用）と同じ最終防衛ロジック）。
+  // （ランナーが kill/クラッシュで死ぬと「処理中」のまま永久に固まるため、exitCode に
+  //   関わらず status を確認する）。
   async function finalizeExit(exitCode: number | null, errMsg?: string): Promise<void> {
     let status: string | undefined;
     try {
@@ -220,11 +194,14 @@ export async function POST(req: Request) {
       status = undefined;
     }
     if (status === "done") return; // 成果物が既にあるなら何もしない（上書きしない）
+    // --run-one は失敗理由（タイムアウト/スキーマ検証不合格/result回収失敗）を自分で
+    // error に記録して終わる。ここで一般化した文言を被せると真因が消えるので触らない。
+    if (status === "error") return;
     const msg =
       errMsg ??
       (exitCode !== 0
         ? `ワーカー異常終了(code ${exitCode})`
-        : "正常終了しましたが完了記録がありません（attach未実行の可能性）");
+        : "ランナーが完了記録を残さずに終了しました");
     try {
       await execFileP(PY, ["-m", "pipeline.dossier", "--finish", "--code", code, "--error", msg], {
         cwd: REPO_ROOT,
@@ -245,7 +222,7 @@ export async function POST(req: Request) {
 
   try {
     active++;
-    const child = spawn(bin, args, { cwd: REPO_ROOT, detached: true, stdio });
+    const child = spawn(PY, args, { cwd: REPO_ROOT, detached: true, stdio });
     child.on("error", (e) => onExit(null, `起動失敗: ${e.message}`));
     child.on("exit", (exitCode) => onExit(exitCode));
     child.unref();
