@@ -1072,8 +1072,16 @@ export default function ExecutionPanel({
                   <span>
                     寄指上限 {it.limit_price != null ? fmtYen(it.limit_price) : "—"}
                   </span>
+                  {/* 買いintentは自身に逆指値を持たない（SLは約定後に別注文として置く）ため
+                      stop_trigger は常にnull。承認時の水準 plan_stop_loss を出す。安く約定
+                      するとSLもその分下がるので確定値ではない＝「予定」と明示する */}
                   <span>
-                    SLトリガー {it.stop_trigger != null ? fmtYen(it.stop_trigger) : "—"}
+                    SL予定{" "}
+                    {it.plan_stop_loss != null
+                      ? fmtYen(it.plan_stop_loss)
+                      : it.stop_trigger != null
+                        ? fmtYen(it.stop_trigger)
+                        : "—"}
                   </span>
                 </li>
               ))}

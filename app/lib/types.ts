@@ -614,6 +614,9 @@ export interface ExecutionIntent {
   // 実約定単価（未約定はnull）。指値は「上限」であって約定価格ではない（板寄せは寄値で
   // 対当する）ため両方並べて出す。2026-08-06追加のため、それ以前のstatus行には無い
   fill_price?: number | null;
+  // 承認時の損切り価格。買いintentは自身に逆指値を持たない（stop_triggerは常にnull）ため、
+  // 承認〜約定の間はこちらが唯一の損切り水準。約定後は安く約定した分だけ下がり得る＝「予定」
+  plan_stop_loss?: number | null;
   updated_at: string;
   note?: string | null;
 }
