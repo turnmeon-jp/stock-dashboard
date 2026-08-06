@@ -759,7 +759,10 @@ export default function ExecutionPanel({
       <table className="w-full text-xs">
         <thead>
           <tr className="bg-slate-100 text-left text-slate-600">
-            {["銘柄", "side", "数量", "状態", "注文番号", "指値", "逆指値", "更新", "note"].map(
+            {/* 指値は「上限」であって約定価格ではない（板寄せは寄値で対当）。約定単価を
+                並べて出さないと「300で買ったつもりが実際は285」の食い違いが読み取れない
+                （2026-08-06 BASE/4477で実際に混乱の元になった） */}
+            {["銘柄", "side", "数量", "状態", "注文番号", "指値", "約定単価", "逆指値", "更新", "note"].map(
               (h, i) => (
                 <th key={i} className="whitespace-nowrap px-2 py-2 font-medium">
                   {h}
@@ -792,6 +795,27 @@ export default function ExecutionPanel({
               </td>
               <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
                 {it.limit_price != null ? fmtInt(it.limit_price) : "-"}
+              </td>
+              {/* 約定単価。指値と食い違うのが正常（安く約定＝有利）なので、差があるときだけ
+                  差分を添えて「なぜ違うか」を読み手が確認しなくて済むようにする */}
+              <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
+                {it.fill_price != null ? (
+                  <>
+                    <span className="font-semibold text-slate-700">{fmtInt(it.fill_price)}</span>
+                    {it.limit_price != null && it.fill_price !== it.limit_price && (
+                      <span
+                        className={`ml-1 text-[10px] ${
+                          it.fill_price < it.limit_price ? "text-emerald-600" : "text-rose-600"
+                        }`}
+                      >
+                        {it.fill_price < it.limit_price ? "" : "+"}
+                        {fmtInt(it.fill_price - it.limit_price)}
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  "-"
+                )}
               </td>
               <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
                 {it.stop_trigger != null ? fmtInt(it.stop_trigger) : "-"}

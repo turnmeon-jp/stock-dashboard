@@ -611,6 +611,9 @@ export interface ExecutionIntent {
   order_number: string | null;
   limit_price: number | null;
   stop_trigger: number | null;
+  // 実約定単価（未約定はnull）。指値は「上限」であって約定価格ではない（板寄せは寄値で
+  // 対当する）ため両方並べて出す。2026-08-06追加のため、それ以前のstatus行には無い
+  fill_price?: number | null;
   updated_at: string;
   note?: string | null;
 }
