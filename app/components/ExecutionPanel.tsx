@@ -94,6 +94,12 @@ function pmGateWouldPlaceLabel(wouldPlace: boolean): string {
 
 // 承認確認ダイアログの想定損失（SLまで）計算。stop_loss >= limit_price は
 // 異常値（本来ロング候補ではあり得ない）のため null を返し、表示側は「—」に畳む。
+//
+// この値は「上限」である（2026-08-06〜）。寄指上限で約定した最悪ケースの損失であり、
+// 実際にはこれ以下にしかならない:
+//   - 計画どおり/やや上で約定 → 損失 = 株数×(約定−SL) ≦ 株数×(寄指上限−SL)
+//   - 計画より安く約定 → SLも同じ幅だけ下がる（execution/daily.py _fill_adjusted_stop）。
+//     損切りまでの値幅は不変で、幅は寄指上限基準より狭いので上限を超えない
 function estimatedLoss(
   c: ExecutionCandidate,
   riskPerTradeYen: number | null,
@@ -633,7 +639,7 @@ export default function ExecutionPanel({
         setDoneHashes((prev) => new Set(prev).add(hash));
         setOpNote({
           ok: true,
-          text: `承認しました: ${confirm.candidate.name}（明朝8:55の寄り前ゲートで気配判定のうえ自動発注されます。約定した場合、SL逆指値 ${fmtYen(confirm.candidate.stop_loss)} まで自動設置されます）`,
+          text: `承認しました: ${confirm.candidate.name}（明朝8:55の寄り前ゲートで気配判定のうえ自動発注されます。約定したらSL逆指値を自動で置きます＝計画どおりの値段なら ${fmtYen(confirm.candidate.stop_loss)}、安く約定すればその分だけ下がります）`,
         });
         setConfirm(null);
       } else if (confirm.kind === "place-stop") {
@@ -1543,9 +1549,19 @@ export default function ExecutionPanel({
                     : `${fmtInt(confirm.candidate.shares)}株`,
               },
               { label: "概算額", value: fmtYen(confirm.candidate.est_cost) },
-              { label: "SLトリガー（約定後に自動設置）", value: fmtYen(confirm.candidate.stop_loss) },
               {
-                label: "想定損失（SLまで）",
+                label: "SLトリガー（約定後に自動設置）",
+                value: (
+                  <>
+                    {fmtYen(confirm.candidate.stop_loss)}
+                    <span className="ml-1 text-[10px] font-normal text-slate-500">
+                      安く約定した分だけ下がります
+                    </span>
+                  </>
+                ),
+              },
+              {
+                label: "想定損失（上限）",
                 value:
                   loss.yen != null
                     ? `${fmtYen(loss.yen)}${loss.r != null ? `（${loss.r.toFixed(2)}R）` : ""}`
@@ -1555,7 +1571,7 @@ export default function ExecutionPanel({
               { label: "RS120", value: confirm.candidate.rs120 != null ? `${confirm.candidate.rs120}%` : "-" },
               { label: "hash", value: confirm.candidate.hash ?? "—" },
             ]}
-            note="承認後は取り消せません。実際の発注は明朝8:55の寄り前ゲートで気配・悪材料を判定のうえ実行されます。約定した場合、このSL逆指値まで自動設置されます。"
+            note="承認後は取り消せません。実際の発注は明朝8:55の寄り前ゲートで気配・悪材料を判定のうえ実行されます。約定したらSL逆指値を自動で置きます。寄指上限は「これ以上では買わない」という上限で、実際は寄り値で約定するため計画より安く買えることがあります。その場合は損切りまでの値幅を保つようSLも同じだけ下げます（例: 5円安く買えたらSLも5円下）。上の想定損失はどちらの場合も上限で、これを超えることはありません。"
           />
         );
       })()}
