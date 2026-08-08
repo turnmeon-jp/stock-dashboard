@@ -141,18 +141,42 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
   const pnlYen = paperTotal != null ? totalAsset - paperTotal : null;
   const pnlPct = pnlYen != null && paperTotal ? (pnlYen / paperTotal) * 100 : null;
 
-  const realizedPnl = closed.reduce((s, c) => s + c.pnl, 0);
+  // 確定損益＝現金化した損益の全額。半分利確(half_profit)も売って現金になっているので含める。
+  // closed だけを合計していた旧実装は半分利確を落としており、同じ画面の「現金 / 建玉評価」と
+  // 辻褄が合わなかった（2026-08-09: 表示-516,047円に対し実際は-408,737円＝11万円のずれ。
+  // state.equity 側には半分利確の代金が入っているため。paper_trade.py evaluate_exits 参照）。
+  const realizedPnl = log.reduce((s, e) => s + (e.type === "entry" ? 0 : e.pnl ?? 0), 0);
 
-  // 1エントリー=1試行。決済確定イベント（損切/トレール/時間切れ）のみカウント。
-  // half_profit は半決済なのでここでは除外（同トレードが二重カウントされる）
-  const closedTrades = log.filter(
-    (e) => e.type === "stop_loss" || e.type === "trail_exit" || e.type === "time_exit"
-  );
-  const winCount = closedTrades.filter((e) => (e.pnl ?? 0) > 0).length;
+  // 1エントリー=1トレードに合算する（2026-08-09・案A）。half_profit は同一トレードの部分決済
+  // なので、最終決済と足し合わせて初めて1件として数える。旧実装は half_profit を母集団から
+  // 除外しており、半分利確で利益を現金化した実績が勝率・平均損益に一切現れなかった
+  // （docs/ledger_criteria.md §8.1 が「勝ちを約45%過小記録」と指摘している現象）。
+  // 二重カウントを避ける狙い自体は正しいので、除外ではなく合算で解く。
+  // 半分利確済みで残り半分が未決済のトレードは「まだ勝ち負けが決まっていない」＝母集団に
+  // 入れない（入れると利確分だけが計上され勝ち側に偏る）。
+  const openAgg = new Map<string, { pnl: number; date: string }>();
+  const closedTrades: { pnl: number; date: string }[] = [];
+  for (const e of log) {
+    if (!e.code) continue;
+    if (e.type === "entry") {
+      openAgg.set(e.code, { pnl: 0, date: e.date });
+      continue;
+    }
+    const cur = openAgg.get(e.code);
+    if (!cur) continue; // 対応するentryが無いイベント（運用開始前の残骸等）は無視
+    cur.pnl += e.pnl ?? 0;
+    if (e.type === "stop_loss" || e.type === "trail_exit" || e.type === "time_exit") {
+      closedTrades.push({ pnl: cur.pnl, date: e.date });
+      openAgg.delete(e.code);
+    }
+  }
+  // 半分利確だけ済んで残りを保有中＝勝敗未確定。件数を出して「見えていない分」を明示する
+  const halfTakenOpen = [...openAgg.values()].filter((a) => a.pnl !== 0).length;
+  const winCount = closedTrades.filter((t) => t.pnl > 0).length;
   const winRate = closedTrades.length > 0 ? (winCount / closedTrades.length) * 100 : null;
   const avgPnl =
     closedTrades.length > 0
-      ? closedTrades.reduce((s, e) => s + (e.pnl ?? 0), 0) / closedTrades.length
+      ? closedTrades.reduce((s, t) => s + t.pnl, 0) / closedTrades.length
       : null;
 
   // ポートフォリオR計算（建玉のrisk_yen合計 / R_BASE）。R_BASE = paper_total * 1%
@@ -298,7 +322,11 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
           label="確定損益"
           value={`${realizedPnl >= 0 ? "+" : ""}${fmtInt(realizedPnl)}円`}
           tone={realizedPnl > 0 ? "pos" : realizedPnl < 0 ? "neg" : "neutral"}
-          sub={`決済済 ${closed.length}件`}
+          sub={
+            halfTakenOpen > 0
+              ? `決済済 ${closed.length}件 ＋ 半分利確 ${halfTakenOpen}件（残り保有中）`
+              : `決済済 ${closed.length}件`
+          }
         />
       </div>
 
@@ -345,6 +373,14 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
             </span>
           </span>
         </div>
+        {/* 勝ちは決着に時間がかかる（損切りは中央値1日／半分利確は28日）。未決済分を
+            伏せたままだと勝率・平均損益が構造的にマイナス側へ偏るので件数を明示する */}
+        {halfTakenOpen > 0 && (
+          <p className="mt-2 text-[11px] text-slate-500">
+            半分利確済みで残りを保有中の {halfTakenOpen} 件は、まだ勝ち負けが決まっていないため
+            上記の母集団に入っていません（確定損益には反映済み）。
+          </p>
+        )}
       </div>
 
       {/* 建玉一覧 */}
