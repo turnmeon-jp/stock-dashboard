@@ -619,6 +619,11 @@ export interface ExecutionIntent {
   plan_stop_loss?: number | null;
   updated_at: string;
   note?: string | null;
+  // cancelled終端の内訳。立花のステータスコードは取消完了(7)も失効(11/12/19)も同じ
+  // cancelled に写像される（execution/models.py ORDER_STATUS_CODE）が、意味は正反対:
+  // 取消=こちらが降りた判断、失効=約定しなかった機会損失。Python側（daily.py
+  // _terminal_kind）が切り分けた結果を受け取る。2026-08-10追加のため旧status行には無い
+  terminal_kind?: "cancelled" | "lapsed" | null;
 }
 
 export interface ExecutionPosition {

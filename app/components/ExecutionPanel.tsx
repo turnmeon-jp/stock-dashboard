@@ -64,6 +64,16 @@ const INTENT_STATE_LABELS: Record<string, string> = {
   expired: "失効",
 };
 
+// cancelled は「取消完了」と「失効」の両方が写像される終端のため、状態名だけでは
+// 「誰かが取り消した」のか「約定しなかった」のか読み取れない。2026-08-10、明和産業
+// (8103)の寄指が寄値超過（気配911→寄値918・上限912）で全部失効した際に実際に区別が
+// つかなかった。取消は自分が降りた判断、失効は機会損失＝寄り前ゲートの精度そのもので、
+// 記録としての意味が正反対なので言い分ける（切り分けはPython側 daily.py _terminal_kind）
+function intentStateLabel(it: ExecutionIntent): string {
+  if (it.state === "cancelled" && it.terminal_kind === "lapsed") return "失効";
+  return INTENT_STATE_LABELS[it.state] ?? it.state;
+}
+
 // 寄り前ゲート（Phase C+）の判定結果 → バッジ色・ラベル
 const GATE_DECISION_TONE: Record<string, string> = {
   placed: "bg-emerald-100 text-emerald-700",
@@ -71,6 +81,9 @@ const GATE_DECISION_TONE: Record<string, string> = {
   skipped_negative: "bg-rose-100 text-rose-700",
   expired_stale: "bg-slate-100 text-slate-600",
   rejected_guard: "bg-rose-100 text-rose-700",
+  // 発注を試みて証券会社に断られた（＝市場に注文は出ていない）。自分のガードで止めた
+  // rejected_guard と同じ赤系だが原因の所在が逆なのでラベルで区別する
+  rejected_order: "bg-rose-100 text-rose-700",
   error: "bg-rose-100 text-rose-700",
 };
 const GATE_DECISION_LABELS: Record<string, string> = {
@@ -79,6 +92,7 @@ const GATE_DECISION_LABELS: Record<string, string> = {
   skipped_negative: "悪材料失効",
   expired_stale: "解禁日超過",
   rejected_guard: "ガード拒否",
+  rejected_order: "受付エラー",
   error: "エラー",
 };
 
@@ -787,7 +801,7 @@ export default function ExecutionPanel({
               <td className="whitespace-nowrap px-2 py-2 text-right font-mono">{fmtInt(it.qty)}</td>
               <td className="whitespace-nowrap px-2 py-2">
                 <span className={`rounded px-1.5 py-0.5 font-medium ${intentTone(it.state)}`}>
-                  {INTENT_STATE_LABELS[it.state] ?? it.state}
+                  {intentStateLabel(it)}
                 </span>
                 {/* 現行モード以外のintent（デモ検証期の遺物など）はモード名を明示して誤読を防ぐ */}
                 {it.mode && it.mode !== mode && (
