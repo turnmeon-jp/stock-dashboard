@@ -19,6 +19,9 @@ import type { MetaResponse } from "@/app/lib/meta";
 // 候補のLLM精査バッジ（WP-B）。app/lib/candidateReviews.tsx の共有部品を使う
 // （実装を重複させない・二重fetchは許容）。
 import { CandidateReviewBadge, fetchCandidateReviews } from "@/app/lib/candidateReviews";
+// 保有中コード（出口監視 /api/exit-monitor 由来）。約定済みintentが「今も保有中か」を
+// 判定して承認ボタンの封鎖を決めるために使う（WatchList.tsx の 📌 判定と同じ配信経路）。
+import { fetchHeldCodes } from "@/app/lib/held";
 
 // モード→バッジ色（dry_run=地味・demo=注意・live=強調。誤発注防止のため live は特に目立たせる）
 function modeTone(mode: string): string {
@@ -31,6 +34,22 @@ function modeLabel(mode: string): string {
   if (mode === "demo") return "デモ";
   if (mode === "dry_run") return "ドライラン（発注なし）";
   return mode;
+}
+
+// 「当日」は閲覧ブラウザのTZでなく取引基準TZ（Asia/Tokyo）で判定する（codexレビューP2）。
+// updated_at はサーバー生成のJSTナイーブ文字列が正だが、オフセット付きISOが来ても壊れない
+// よう、オフセット無しのみ+09:00を補ってからJST暦日に正規化する。パース不能時は文字列先頭
+// 10桁に縮退（=従来のprefix比較と同等）。
+// intents一覧の当日/過去振り分けと、発注済み判定の「当日約定」条件の両方で使うため
+// モジュールレベルに置く（2026-08-17: 後者の追加に伴い関数コンポーネント内から移動）。
+function jstDay(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const t = Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}+09:00`);
+  if (Number.isNaN(t)) return iso.slice(0, 10);
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(t));
+}
+function jstToday(): string {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date());
 }
 
 // intent state → バッジ色
@@ -449,6 +468,13 @@ export default function ExecutionPanel({
       .catch(() => {});
   }, []);
 
+  // 保有中コード（5桁J-Quants）。null = 未取得または取得失敗。約定済みintentを持つ行の
+  // 承認可否をこれで分けるため、空集合に畳まず null を保つ（null時は塞ぐ方向＝安全側）。
+  const [heldCodes, setHeldCodes] = useState<Set<string> | null>(null);
+  useEffect(() => {
+    fetchHeldCodes().then(setHeldCodes);
+  }, []);
+
   // 既存ウォッチ銘柄（CandidatesTable.tsx から移植した「追加済み」判定フロー）
   const [watchedCodes, setWatchedCodes] = useState<Set<string>>(new Set());
   const [addingWatchCode, setAddingWatchCode] = useState<string | null>(null);
@@ -728,7 +754,7 @@ export default function ExecutionPanel({
   // （最終防衛はバックエンドのsqlite一意制約と日次枠。ここは多重防御の1枚）。
   // error/cancelled/expired は死んだintent＝再発注があり得るため除外。
   // Phase C+: approve は「承認のみ」になったため、state="approved"（未発注・ゲート待ち）は
-  // 実発注済み(orderedCodes)とは別集合に分け、バッジの文言を出し分ける。
+  // 実発注済み(pendingBuyCodes)とは別集合に分け、バッジの文言を出し分ける。
   const DEAD_INTENT_STATES = new Set(["error", "cancelled", "expired"]);
   // 現行モードのintentだけを判定材料にする（2026-07-25: デモ時代の約定済みintentが
   // live候補の承認ボタンを「発注済」表示で永久に塞ぐ誤判定の修正。mode欠落の旧行は
@@ -739,11 +765,43 @@ export default function ExecutionPanel({
   const approvedCodes = new Set(
     buyIntents.filter((it) => it.state === "approved").map((it) => it.code),
   );
-  const orderedCodes = new Set(
+  const todayJst = jstToday();
+  // (a) 未終端のbuy intent＝注文が市場に生きている（accepted/partial/sending/unknown/created）。
+  const pendingBuyCodes = new Set(
     buyIntents
-      .filter((it) => it.state !== "approved" && !DEAD_INTENT_STATES.has(it.state))
+      .filter(
+        (it) =>
+          it.state !== "approved" &&
+          it.state !== "filled" &&
+          !DEAD_INTENT_STATES.has(it.state),
+      )
       .map((it) => it.code),
   );
+  // 約定済みのbuy intent。約定は「建てた」事実であって「今も持っている」ことではない。
+  // 2026-08-17修正: 以前は filled を (a) と同じ扱いにしていたため、決済して手元がゼロに
+  // なった銘柄が永久に「発注済」となり、再エントリー候補の承認ボタンが出なくなっていた
+  // （BASE/4477: 8/6に約定→同日20:05にSL決済→8/18解禁の候補が承認不能になって発覚。
+  //  バックエンドのガード6は ACTIVE_STATES しか見ないため filled は封鎖しておらず、
+  //  「action_queueはP8承認検討に出すのに執行タブでは承認できない」という食い違いだった）。
+  const filledBuyCodes = new Set(
+    buyIntents.filter((it) => it.state === "filled").map((it) => it.code),
+  );
+  // (b) うち当日約定分。holdings（/api/exit-monitor）への反映は夜19時の日次バッチ
+  // （pipeline/exec_journal_sync.py）なので、当日9:10に約定した銘柄は保有判定にまだ
+  // 現れない。この穴を当日約定という事実で埋め、同日中の二重建てを塞ぐ。
+  const filledTodayBuyCodes = new Set(
+    buyIntents
+      .filter((it) => it.state === "filled" && jstDay(it.updated_at) === todayJst)
+      .map((it) => it.code),
+  );
+  // (c) 約定済みかつ現に保有している行＝新規建て不可。heldCodes は5桁J-Quantsコードなので
+  // 候補行の jq_code と突合する（intent.code は立花4桁）。未取得/取得失敗(null)と jq_code
+  // 欠損は安全側＝塞ぐ方向に倒す。
+  const isHeldRow = (c: ExecutionCandidate) =>
+    filledTodayBuyCodes.has(c.code) ||
+    (filledBuyCodes.has(c.code) && (heldCodes === null || !c.jq_code || heldCodes.has(c.jq_code)));
+  // 承認ボタンを塞ぐ対象 = (a) 発注中 OR (b)(c) 保有中。
+  const isOrderedRow = (c: ExecutionCandidate) => pendingBuyCodes.has(c.code) || isHeldRow(c);
 
   // 注文（intents）一覧の肥大対策（2026-07-28 ユーザー要望「リストがどんどん長くなる」）。
   // 既定表示 = 生きているintent（approved/accepted/partial/unknown）＋ 当日更新分。
@@ -755,23 +813,12 @@ export default function ExecutionPanel({
   const intentsDesc = [...(status?.intents ?? [])].sort((a, b) =>
     (b.updated_at ?? "").localeCompare(a.updated_at ?? ""),
   );
-  // 「当日」は閲覧ブラウザのTZでなく取引基準TZ（Asia/Tokyo）で判定する（codexレビューP2）。
-  // updated_at はサーバー生成のJSTナイーブ文字列が正だが、オフセット付きISOが来ても壊れない
-  // よう、オフセット無しのみ+09:00を補ってからJST暦日に正規化する。パース不能時は文字列先頭
-  // 10桁に縮退（=従来のprefix比較と同等）。
-  const jstDay = (iso: string | null | undefined): string => {
-    if (!iso) return "";
-    const t = Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/.test(iso) ? iso : `${iso}+09:00`);
-    if (Number.isNaN(t)) return iso.slice(0, 10);
-    return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(t));
-  };
-  const intentsToday = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date());
   const currentIntents: ExecutionIntent[] = [];
   const pastIntents: ExecutionIntent[] = [];
   for (const it of intentsDesc) {
     const isPast =
       (TERMINAL_INTENT_STATES.has(it.state) || it.state === "error") &&
-      jstDay(it.updated_at) !== intentsToday;
+      jstDay(it.updated_at) !== todayJst;
     (isPast ? pastIntents : currentIntents).push(it);
   }
   const renderIntentsTable = (items: ExecutionIntent[]) => (
@@ -867,7 +914,7 @@ export default function ExecutionPanel({
     planCandidates.slice(0, TOP_N).map((c, i) => [rowKeyOf(c), i + 1]),
   );
   const isPinnedRow = (c: ExecutionCandidate) =>
-    orderedCodes.has(c.code) ||
+    isOrderedRow(c) ||
     approvedCodes.has(c.code) ||
     (c.hash != null && doneHashes.has(c.hash)) ||
     // ウォッチ銘柄の自動執行オプトイン経由（source:"watchlist"）は常にprimaryへ固定表示する。
@@ -886,10 +933,13 @@ export default function ExecutionPanel({
   // 候補1行（+詳細展開行）の描画。primary/rest/excluded の3グループで共用する
   const renderCandidateRow = (c: ExecutionCandidate) => {
     // excluded行はhash=null。keyはjq_code（プラン内で一意）を使い、hashに依存しない。
-    // 発注済み判定 = サーバ永続状態(orderedCodes)。承認済み(ゲート待ち)判定 =
+    // 発注済み判定 = サーバ永続状態(isOrderedRow)。承認済み(ゲート待ち)判定 =
     // セッション内の即時反映(doneHashes) OR サーバ永続状態(approvedCodes)。
     // 発注済みが優先（ゲート実行後に approved→accepted 等へ遷移した場合の表示を正しくするため）。
-    const isOrdered = orderedCodes.has(c.code);
+    // 「発注中(未終端)」と「保有中(約定済みで手元にある)」は塞ぐ理由が違うので文言を分ける
+    // （旧実装は両方「発注済」の一語で、決済済みの銘柄まで塞ぐ誤りに気づけなかった）。
+    const isHeld = isHeldRow(c);
+    const isOrdered = pendingBuyCodes.has(c.code) || isHeld;
     const isApprovedPending =
       !isOrdered && ((c.hash != null && doneHashes.has(c.hash)) || approvedCodes.has(c.code));
     const isExcluded = !!c.excluded;
@@ -960,8 +1010,17 @@ export default function ExecutionPanel({
           <td className="whitespace-nowrap px-2 py-2 text-right">
             {isExcluded ? (
               <span className="text-slate-400">{c.excluded}</span>
+            ) : isHeld ? (
+              <span
+                className="text-emerald-600"
+                title="この銘柄は既に建てて保有中です。買い増しの判断は出口監視の🔼（フリーロール成立時のみ）を見る"
+              >
+                ✔ 保有中
+              </span>
             ) : isOrdered ? (
-              <span className="text-emerald-600">✔ 発注済</span>
+              <span className="text-emerald-600" title="注文が市場に残っています（約定/取消の確定まで新規禁止）">
+                ✔ 発注済
+              </span>
             ) : isApprovedPending ? (
               <span
                 className="text-amber-600"

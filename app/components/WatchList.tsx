@@ -544,9 +544,10 @@ export default function WatchList() {
     fetchLvhAlerts().then((d) => setLvhMap(groupLvhAlertsByCode(d.alerts)));
   }, []);
 
-  // 保有中コード（📌ガード用。✅は新規目線・買い増しは出口監視の🔼のみ）
+  // 保有中コード（📌ガード用。✅は新規目線・買い増しは出口監視の🔼のみ）。
+  // 取得失敗(null)はバッジを出さないだけ＝空集合に畳んでよい（表示のみの用途）。
   useEffect(() => {
-    fetchHeldCodes().then(setHeldCodes);
+    fetchHeldCodes().then((s) => setHeldCodes(s ?? new Set()));
   }, []);
 
   const handleRemove = useCallback(async (s: WatchItem) => {
