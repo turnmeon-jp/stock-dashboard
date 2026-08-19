@@ -634,6 +634,10 @@ export interface ExecutionPosition {
   sellable_qty: number;
   // 実弾保有と損益の可視化（2026-07-19）。旧データ（追加前生成）には無いため optional。
   avg_cost?: number | null; // 建値（平均取得単価）
+  // 建値の出どころ（2026-08-18追加）。"fill"=自動執行の約定記録から算出した実約定単価／
+  // "broker"=立花の概算簿価（sUriOrderGaisanBokaTanka。約定当日は注文単価のまま返る）。
+  // 旧データには無いため optional。
+  avg_cost_basis?: "fill" | "broker" | null;
   price?: number | null; // 現値
   price_basis?: "current" | "prev_close" | null; // 現値の種別。夜バッチ更新のため通常は前日終値。
   market_value?: number | null; // 評価額（price × qty）

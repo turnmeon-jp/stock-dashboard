@@ -1509,9 +1509,27 @@ export default function ExecutionPanel({
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="bg-slate-100 text-left text-slate-600">
-                        {["銘柄", "数量", "売却可能数量", "建値", "現値", "評価損益"].map((h, i) => (
-                          <th key={i} className="whitespace-nowrap px-2 py-2 font-medium">
-                            {h}
+                        {[
+                          { label: "銘柄" },
+                          { label: "数量" },
+                          { label: "売却可能数量" },
+                          {
+                            label: "建値",
+                            // 立花の画面に出る簿価と1円ほど食い違うことがあるのは、あちらが
+                            // 「概算」簿価で約定当日は注文単価のまま返るため（2026-08-18 BASE
+                            // で実測）。こちらは約定記録の実約定単価＝出口監視と同じ建値。
+                            title:
+                              "実約定単価（自動執行の約定記録から算出）。立花の画面に出る概算簿価は約定当日だけ注文単価のことがあり数円ズレる",
+                          },
+                          { label: "現値" },
+                          { label: "評価損益" },
+                        ].map((h, i) => (
+                          <th
+                            key={i}
+                            className="whitespace-nowrap px-2 py-2 font-medium"
+                            title={h.title}
+                          >
+                            {h.label}
                           </th>
                         ))}
                       </tr>
@@ -1536,6 +1554,14 @@ export default function ExecutionPanel({
                             </td>
                             <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
                               {p.avg_cost != null ? fmtYen(p.avg_cost) : "—"}
+                              {p.avg_cost_basis === "broker" && p.avg_cost != null && (
+                                <span
+                                  className="ml-1 text-[10px] text-slate-400"
+                                  title="立花の概算簿価。自動執行の約定記録では説明できない建玉（システム外での取得・移管など）のため実約定単価に置き換えられていない"
+                                >
+                                  概算
+                                </span>
+                              )}
                             </td>
                             <td className="whitespace-nowrap px-2 py-2 text-right font-mono">
                               {p.price != null ? (
