@@ -411,6 +411,7 @@ export interface LedgerBucket {
 // 系統の昇格/廃止 判定（pipeline/candidate_ledger.py _verdict 参照・docs/ledger_criteria.md）。
 // **候補の提示にすぎず、自動でエントリー条件・SOURCESを書き換える処理はない＝最終判断は人間。**
 export type LedgerVerdict =
+  | "never_fired"
   | "insufficient_n"
   | "promote_candidate"
   | "demote_candidate"
@@ -435,6 +436,19 @@ export interface LedgerCriteria {
 
 // systems[system] は "5"|"20"|"60"|"120" のホライズン別バケツと verdict/verdict_detail が
 // 同階層に混在する（report() の出力形そのまま。ネストを変えていない）
+// 系統の発火状況（2026-08-21）。verdict は「評価済みの超過リターンが何件あるか」しか
+// 見ないため、発火ゼロ（配線が切れている）と発火はしているが評価待ち（20営業日未経過）が
+// どちらも標本不足と同じ顔になる。区別できないと、壊れた機能が4ヶ月「観察中」に見え続ける。
+export interface LedgerActivity {
+  n_rows: number;          // 行の総数（cohort適用後）
+  n_days: number;          // 発火した日数
+  last_fired: string | null;
+  days_since_last: number | null;
+  n_rows_recent: number;   // 直近20暦日の行数
+  established: boolean;    // 累計20行以上＝定着した系統
+  silent: boolean;         // 定着していたのに20日以上沈黙＝壊れた疑い
+}
+
 export interface LedgerSystemReport {
   "5"?: LedgerBucket;
   "20"?: LedgerBucket;
@@ -442,6 +456,7 @@ export interface LedgerSystemReport {
   "120"?: LedgerBucket;
   verdict?: LedgerVerdict;
   verdict_detail?: LedgerVerdictDetail;
+  activity?: LedgerActivity;
 }
 
 export interface LedgerReport {
@@ -496,10 +511,26 @@ export interface ExecQualityFill {
   slippage_vs_limit: number | null;
 }
 
+// 承認を繰り返しているのに約定歴ゼロの銘柄（2026-08-21）。
+// structural_suspect=true は「同じ終端理由が3回以上・直近2営業日以内」＝価格依存でない
+// ＝機構側の疑い。気配ゲートのような価格依存の見送りは false のまま（正常な挙動）。
+export interface ExecQualityUnfilled {
+  code: string;
+  name: string | null;
+  n_approved: number;
+  n_filled: number;
+  top_reason: string | null;
+  top_reason_count: number;
+  reasons: Record<string, number>;
+  last_seen: string | null;
+  structural_suspect: boolean;
+}
+
 export interface ExecQualityModeReport {
   gate: ExecQualityGate;
   fill_summary: ExecQualityFillSummary;
   pm_gate: ExecQualityPmGate;
+  unfilled_approvals?: ExecQualityUnfilled[];
   fills: ExecQualityFill[]; // 新しい順・最大30行
 }
 
@@ -523,6 +554,9 @@ export interface RealPostmortemTrade {
   timestop_first: string | null;
   days_after_timestop: number | null;
   exit_reason: string | null;
+  // 建玉の由来（2026-08-21）。tachibana_auto = 自動執行が建てたもの
+  source?: string | null;
+  system_originated?: boolean;
 }
 
 export interface RealPostmortemSummary {
@@ -534,6 +568,11 @@ export interface RealPostmortemSummary {
   median_holding_days: number | null;
   total_pl_yen: number;
   breach_trades: number; // 前回逆指値割れのまま保有継続した決済件数
+  // 自動執行が自分で建てて自分で決済したぶんだけの再集計（2026-08-21）。
+  // 全体の n には移行前の裁量建玉の時間ストップが混ざっており、2026-08-21時点では
+  // 決済8件のうちシステム由来は2件しかない。全体の勝率を「システムの成績」として
+  // 読むと根拠を4倍に見誤るため、画面でも必ず併記する。
+  system_originated?: RealPostmortemSummary;
 }
 
 export interface RealPostmortemData {
@@ -579,12 +618,39 @@ export interface ExecutionCandidate {
   source?: "signals" | "watchlist" | string;
 }
 
+// プラン生成時に各ゲートが実際に何をしたか（2026-08-21）。「有効なのに0件処理」と
+// 「そもそも無効」を画面で区別できないと、ゲートが丸ごと死んでいても気づけない。
+export interface ExecutionEarningsGate {
+  enabled: boolean;
+  degraded: boolean;   // true = ゲートが実質無効のままプランを作った（決算日が判定できない）
+  reason: string | null;
+  fetched_at: string | null;
+  n_excluded: number;
+}
+
+export interface ExecutionGrowthGate {
+  enabled: boolean;    // config entry.require_growth_pass。既定false＝従来どおり
+  n_excluded: number;
+}
+
+// ウォッチ由来候補の鮮度ゲート。n_stale_dropped === n_items > 0 は watchlist.json 自体が
+// 古い＝日次の実行順序が崩れたか watchlist 生成が失敗した印。
+export interface ExecutionWatchlistGate {
+  as_of: string | null;
+  signals_as_of: string | null;
+  n_items: number;
+  n_stale_dropped: number;
+}
+
 export interface ExecutionPlan {
   generated_at: string;
   as_of: string;
   mode: ExecutionMode;
   regime: { label: string; [key: string]: unknown };
   guards: ExecutionGuards;
+  earnings_gate?: ExecutionEarningsGate;
+  growth_gate?: ExecutionGrowthGate;
+  watchlist_gate?: ExecutionWatchlistGate;
   candidates: ExecutionCandidate[];
 }
 

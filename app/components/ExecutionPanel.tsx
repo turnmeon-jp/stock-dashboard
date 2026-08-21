@@ -10,6 +10,7 @@ import type {
   ExecutionNeedStop,
   ExecutionResponse,
   PmGateResult,
+  ExecutionPlan,
 } from "@/app/lib/types";
 import { fmtInt, fmtNum, fmtPct, fmtYen } from "@/app/lib/format";
 import { setupLabel, TOP_N } from "@/app/lib/constants";
@@ -240,6 +241,40 @@ function ConfirmSheet({
           {busy ? "処理中…" : confirmLabel}
         </button>
       </div>
+    </div>
+  );
+}
+
+// プラン生成時のゲート稼働（2026-08-21）。ゲートは「候補を減らす」方向にしか働かないので、
+// 減っていないときに「効いていない」のか「該当が無かった」のかが外から見えない。決算ゲートが
+// 古いキャッシュで丸ごと無効化されていた件（2026-08-08）と、ウォッチ由来が前日データで
+// 100%失効していた件（2026-08-21）は、どちらもこの区別が無かったために見逃された。
+function PlanGates({ plan }: { plan: ExecutionPlan }) {
+  const eg = plan.earnings_gate;
+  const gg = plan.growth_gate;
+  const wg = plan.watchlist_gate;
+  if (!eg && !gg && !wg) return null;
+  const wgStale = wg && wg.n_items > 0 && wg.n_stale_dropped >= wg.n_items;
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+      <span className="font-semibold text-slate-600">ゲート稼働</span>
+      {eg && (
+        <span className={eg.degraded ? "font-semibold text-rose-600" : ""}>
+          決算またぎ {eg.degraded ? `⚠無効（${eg.reason ?? "理由不明"}）` : `除外${eg.n_excluded}件`}
+        </span>
+      )}
+      {gg && (
+        <span>
+          成長フィルタ {gg.enabled ? `ON・除外${gg.n_excluded}件` : "OFF（config entry.require_growth_pass）"}
+        </span>
+      )}
+      {wg && (
+        <span className={wgStale ? "font-semibold text-rose-600" : ""}>
+          ウォッチ鮮度 {wgStale
+            ? `⚠全${wg.n_items}件が古い基準日（${wg.as_of}）で脱落`
+            : `${wg.n_items - wg.n_stale_dropped}/${wg.n_items}件が当日基準`}
+        </span>
+      )}
     </div>
   );
 }
@@ -1237,6 +1272,7 @@ export default function ExecutionPanel({
             </span>
           )}
         </h3>
+        {plan && <PlanGates plan={plan} />}
         {!plan ? (
           <p className="rounded-lg border border-slate-200 bg-white py-6 text-center text-sm text-slate-400 shadow-sm">
             プランがまだありません。「プラン再生成」を押してください。

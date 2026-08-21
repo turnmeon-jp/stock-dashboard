@@ -8,6 +8,8 @@ import type {
   ExecQualityReport,
   ExecQualityModeReport,
   ExecQualityFill,
+  ExecQualityUnfilled,
+  LedgerActivity,
 } from "@/app/lib/types";
 import { fmtInt, fmtPct, fmtNum } from "@/app/lib/format";
 
@@ -41,9 +43,10 @@ const HORIZON_LABELS: Record<string, string> = {
 const VERDICT_ORDER: Record<LedgerVerdict, number> = {
   promote_candidate: 0,
   demote_candidate: 1,
-  watch: 2,
-  stale: 3,
-  insufficient_n: 4,
+  never_fired: 2,
+  watch: 3,
+  stale: 4,
+  insufficient_n: 5,
 };
 
 const VERDICT_BADGE: Record<LedgerVerdict, { label: string; cls: string; hint: string }> = {
@@ -60,7 +63,12 @@ const VERDICT_BADGE: Record<LedgerVerdict, { label: string; cls: string; hint: s
   insufficient_n: {
     label: "⚪ 標本不足",
     cls: "bg-slate-100 text-slate-500",
-    hint: "まだ判定に十分なデータ量がない",
+    hint: "発火はしているが、判定に十分な評価済みデータがまだない",
+  },
+  never_fired: {
+    label: "⚫ 未発火",
+    cls: "bg-slate-800 text-slate-100",
+    hint: "この条件に該当した銘柄が一度も無い。配線が切れている疑い（元々稀な系統なら正常）",
   },
   stale: {
     label: "🟡 発火不足",
@@ -73,6 +81,31 @@ const VERDICT_BADGE: Record<LedgerVerdict, { label: string; cls: string; hint: s
     hint: "判断保留、引き続き様子見",
   },
 };
+
+// 発火状況の1行表示（2026-08-21）。n（評価済み件数）だけを見ていると「発火ゼロ」と
+// 「発火はしたが評価待ち」の区別がつかない。実例: addon_reco は n=0 のまま「標本不足」と
+// 読まれていたが、実際は8/17と8/20に2回発火しており、20営業日の評価を待っていただけだった。
+function ActivityLine({ a }: { a?: LedgerActivity }) {
+  if (!a) return null;
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+      <span>
+        発火 <span className="font-mono text-slate-700">{fmtInt(a.n_rows)}</span>件
+        <span className="text-slate-300">/</span>
+        <span className="font-mono text-slate-700">{fmtInt(a.n_days)}</span>日
+      </span>
+      <span>
+        直近20日 <span className="font-mono text-slate-700">{fmtInt(a.n_rows_recent)}</span>件
+      </span>
+      <span>最終発火 <span className="font-mono text-slate-700">{a.last_fired ?? "—"}</span></span>
+      {a.silent && (
+        <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-700">
+          ⚠沈黙中（定着していた系統が{fmtInt(a.days_since_last)}日発火なし）
+        </span>
+      )}
+    </div>
+  );
+}
 
 function verdictOf(entry: LedgerSystemReport): LedgerVerdict {
   return entry.verdict ?? "insufficient_n";
@@ -249,6 +282,7 @@ function SystemRow({
         <tr>
           <td colSpan={5} className="p-0">
             <div className="bg-slate-50 px-3 py-2">
+              <ActivityLine a={entry.activity} />
               <HorizonDetailTable entry={entry} horizons={horizons} />
             </div>
           </td>
@@ -319,6 +353,41 @@ function FillsTable({ fills }: { fills: ExecQualityFill[] }) {
   );
 }
 
+// 承認したのに一度も約定しない銘柄（2026-08-21）。ウォッチ由来の候補が配線以来100%失効して
+// いたのに1ヶ月気づけなかったことへの対処＝毎朝の「解禁日超過」が他の正常な失効と1行ずつでは
+// 見分けられなかった。銘柄単位で積むと、同一理由の反復（機構の疑い）と価格依存の見送り
+// （正常）が分かれる。
+function UnfilledApprovals({ rows }: { rows: ExecQualityUnfilled[] }) {
+  if (rows.length === 0) return null;
+  const suspect = rows.filter((r) => r.structural_suspect);
+  const normal = rows.filter((r) => !r.structural_suspect);
+  return (
+    <div className="space-y-1">
+      {suspect.length > 0 && (
+        <div className="rounded border border-rose-300 bg-rose-50 p-2">
+          <div className="text-[11px] font-semibold text-rose-700">
+            ⚠承認したのに一度も約定していない（同一理由の反復＝機構を疑う）
+          </div>
+          {suspect.map((r) => (
+            <div key={r.code} className="mt-1 font-mono text-xs text-slate-700">
+              {r.code} {r.name ?? ""} 承認{fmtInt(r.n_approved)}/約定0
+              <span className="ml-1 text-rose-600">
+                {r.top_reason}×{fmtInt(r.top_reason_count)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {normal.length > 0 && (
+        <div className="text-[11px] text-slate-400">
+          承認したが未約定 {fmtInt(normal.length)}銘柄（
+          {normal.map((r) => r.code).join(", ")}）＝価格依存の見送りとして正常範囲
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ExecQualityModeCard({ mode, data }: { mode: string; data: ExecQualityModeReport }) {
   const g = data.gate;
   const fsum = data.fill_summary;
@@ -352,6 +421,7 @@ function ExecQualityModeCard({ mode, data }: { mode: string; data: ExecQualityMo
           </div>
         </div>
       </div>
+      <UnfilledApprovals rows={data.unfilled_approvals ?? []} />
       {data.fills.length > 0 && <FillsTable fills={data.fills} />}
     </div>
   );
