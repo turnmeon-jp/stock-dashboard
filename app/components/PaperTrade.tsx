@@ -71,6 +71,13 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
   const [ledger, setLedger] = useState<LedgerReport | null>(null);
   // ペーパー総資金（output/meta.json 由来）。未取得時は null のまま = 各表示は "-" にフォールバック。
   const [paperTotal, setPaperTotal] = useState<number | null>(null);
+  // DD停止の基準値（config.yaml risk.*_dd_stop_pct・output/meta.json 経由・負の%）。
+  // 旧実装は「-15%」を固定文言で持ち、config を -20% へ変えた後も画面だけ古いままだった
+  // （2026-09-12）。未取得時は null のまま = 「—」表示・メーターの目盛りは出さない。
+  const [ddStop, setDdStop] = useState<{ monthly: number | null; total: number | null }>({
+    monthly: null,
+    total: null,
+  });
   const [loading, setLoading] = useState(true);
   const [selectedLog, setSelectedLog] = useState<PaperLogEntry | null>(null);
 
@@ -98,12 +105,17 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
         setSectorConc(pm?.sector_concentration ?? null);
         setLedger(led ?? null);
         setPaperTotal(meta?.capital?.paper_total ?? null);
+        setDdStop({
+          monthly: meta?.risk?.monthly_dd_stop_pct ?? null,
+          total: meta?.risk?.total_dd_stop_pct ?? null,
+        });
       })
       .catch((err) => {
         console.error("ペーパートレードデータの取得に失敗:", err);
         setPosData({ positions: [], closed: [], equity: 0, started_at: "" });
         setLog([]);
         setPaperTotal(null);
+        setDdStop({ monthly: null, total: null });
       })
       .finally(() => setLoading(false));
   }, []);
@@ -137,9 +149,15 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
     0
   );
   const totalAsset = equity + positionValue;
+  // 時価が欠けている建玉の数（取得単価で評価している分）。0件なら「時価ベース」と言い切れる
+  const missingPriceCount = positions.filter((p) => p.current_price == null).length;
   // paper_total 未取得時は損益額/率を "-" 表示にする（誤った%を出すよりよい。ハードコードへのフォールバックはしない）
   const pnlYen = paperTotal != null ? totalAsset - paperTotal : null;
   const pnlPct = pnlYen != null && paperTotal ? (pnlYen / paperTotal) * 100 : null;
+  // 損益額の内訳: 含み（建玉の時価 − 取得額）＋確定（下の realizedPnl）＝ pnlYen。
+  // 現金 equity = paper_total − 建玉取得額 + 確定損益 なので、総資産 − paper_total は
+  // 必ず「含み＋確定」に分解できる（2026-09-12 実データで検算: 327,270 + (-164,589) = 162,681 ≒ 162,680）
+  const unrealizedPnl = positionValue - positions.reduce((s, p) => s + p.entry_price * p.shares, 0);
 
   // 確定損益＝現金化した損益の全額。半分利確(half_profit)も売って現金になっているので含める。
   // closed だけを合計していた旧実装は半分利確を落としており、同じ画面の「現金 / 建玉評価」と
@@ -189,6 +207,21 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
   const monthBase = month_start_equity ?? paperTotal ?? null;
   const cumDdPct = hwm ? ((totalAsset - hwm) / hwm) * 100 : null;
   const monthDdPct = monthBase ? ((totalAsset - monthBase) / monthBase) * 100 : null;
+  // DDメーターは「停止基準に対する消費率」で色と幅を決める（基準値は config 由来・未取得なら目盛りなし）。
+  // 旧実装は 15 / 8 を直書きしており、config を変えても画面が追従しなかった
+  const ddRatio = (dd: number | null, stop: number | null): number | null =>
+    dd !== null && stop ? Math.min(Math.abs(Math.min(dd, 0)) / Math.abs(stop), 1) : null;
+  const cumDdRatio = ddRatio(cumDdPct, ddStop.total);
+  const monthDdRatio = ddRatio(monthDdPct, ddStop.monthly);
+  const fmtStop = (v: number | null): string => (v !== null ? `${v}%` : "—");
+  const ddTextClass = (ratio: number | null): string =>
+    ratio !== null && ratio >= 0.75
+      ? "text-rose-600 font-semibold"
+      : ratio !== null && ratio >= 0.45
+        ? "text-amber-600"
+        : "text-slate-600";
+  const ddBarClass = (ratio: number | null): string =>
+    ratio !== null && ratio >= 0.75 ? "bg-rose-500" : ratio !== null && ratio >= 0.45 ? "bg-amber-400" : "bg-slate-300";
 
   const edgeCodes = new Set(candidates.filter((c) => c.edge_aligned).map((c) => c.code));
   const positionCodes = positions.map((p) => p.code);
@@ -225,7 +258,7 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
       {!dd_stopped && ((cumDdPct !== null && cumDdPct <= -5) || (monthDdPct !== null && monthDdPct <= -5)) && (
         <div className="rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           ⚠️ DD注意: 累計{cumDdPct !== null ? fmtPct(cumDdPct) : "—"} / 月次{monthDdPct !== null ? fmtPct(monthDdPct) : "—"}
-          （停止基準: 累計-15% / 月次-8%）
+          （停止基準: 累計{fmtStop(ddStop.total)} / 月次{fmtStop(ddStop.monthly)}）
         </div>
       )}
 
@@ -266,32 +299,32 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
           <div>
             <div className="flex justify-between mb-0.5 text-slate-500">
               <span>累計DD</span>
-              <span className={cumDdPct !== null && cumDdPct <= -10 ? "text-rose-600 font-semibold" : cumDdPct !== null && cumDdPct <= -5 ? "text-amber-600" : "text-slate-600"}>
+              <span className={ddTextClass(cumDdRatio)}>
                 {cumDdPct !== null ? `${cumDdPct > 0 ? "+" : ""}${fmtPct(cumDdPct)}` : "—"}
               </span>
             </div>
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${cumDdPct !== null && Math.abs(cumDdPct) >= 12 ? "bg-rose-500" : cumDdPct !== null && Math.abs(cumDdPct) >= 7 ? "bg-amber-400" : "bg-slate-300"}`}
-                style={{ width: `${cumDdPct !== null ? Math.min(Math.abs(cumDdPct) / 15 * 100, 100) : 0}%` }}
+                className={`h-full rounded-full transition-all ${ddBarClass(cumDdRatio)}`}
+                style={{ width: `${cumDdRatio !== null ? cumDdRatio * 100 : 0}%` }}
               />
             </div>
-            <div className="text-slate-400 mt-0.5">停止基準 -15%</div>
+            <div className="text-slate-400 mt-0.5">停止基準 {fmtStop(ddStop.total)}</div>
           </div>
           <div>
             <div className="flex justify-between mb-0.5 text-slate-500">
               <span>月次DD</span>
-              <span className={monthDdPct !== null && monthDdPct <= -6 ? "text-rose-600 font-semibold" : monthDdPct !== null && monthDdPct <= -4 ? "text-amber-600" : "text-slate-600"}>
+              <span className={ddTextClass(monthDdRatio)}>
                 {monthDdPct !== null ? `${monthDdPct > 0 ? "+" : ""}${fmtPct(monthDdPct)}` : "—"}
               </span>
             </div>
             <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all ${monthDdPct !== null && Math.abs(monthDdPct) >= 6 ? "bg-rose-500" : monthDdPct !== null && Math.abs(monthDdPct) >= 4 ? "bg-amber-400" : "bg-slate-300"}`}
-                style={{ width: `${monthDdPct !== null ? Math.min(Math.abs(monthDdPct) / 8 * 100, 100) : 0}%` }}
+                className={`h-full rounded-full transition-all ${ddBarClass(monthDdRatio)}`}
+                style={{ width: `${monthDdRatio !== null ? monthDdRatio * 100 : 0}%` }}
               />
             </div>
-            <div className="text-slate-400 mt-0.5">停止基準 -8%</div>
+            <div className="text-slate-400 mt-0.5">停止基準 {fmtStop(ddStop.monthly)}</div>
           </div>
         </div>
       </div>
@@ -299,16 +332,20 @@ export default function PaperTrade({ candidates }: { candidates: Candidate[] }) 
       {/* サマリーカード: スマホ2列 / デスクトップ4列 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <SummaryCard
-          label="総資産（取得額ベース）"
+          label="総資産（時価ベース）"
           value={fmtYen(totalAsset)}
-          sub={`開始: ${started_at}（${elapsed}日経過）※時価未取得`}
+          sub={
+            `開始: ${started_at}（${elapsed}日経過）` +
+            (missingPriceCount > 0 ? `※${missingPriceCount}件は時価未取得（取得単価で評価）` : "")
+          }
         />
         <SummaryCard
           label="損益額 / 損益率"
           value={pnlYen !== null ? `${pnlYen >= 0 ? "+" : ""}${fmtInt(pnlYen)}円` : "—"}
           sub={
             pnlPct !== null
-              ? `${pnlPct >= 0 ? "+" : ""}${fmtPct(pnlPct)} vs ${paperTotal != null ? fmtYen(paperTotal) : "—"}`
+              ? `${pnlPct >= 0 ? "+" : ""}${fmtPct(pnlPct)} vs ${paperTotal != null ? fmtYen(paperTotal) : "—"}` +
+                `｜含み ${unrealizedPnl >= 0 ? "+" : ""}${fmtInt(unrealizedPnl)} / 確定 ${realizedPnl >= 0 ? "+" : ""}${fmtInt(realizedPnl)}`
               : "資金データ未取得"
           }
           tone={pnlYen !== null ? (pnlYen > 0 ? "pos" : pnlYen < 0 ? "neg" : "neutral") : "neutral"}

@@ -14,10 +14,18 @@ export interface CapitalInfo {
   real_risk_per_trade_yen: number | null;
 }
 
+// DD停止の基準値（config.yaml risk.*_dd_stop_pct 由来・負の%）。ペーパータブの
+// 「停止基準 -15%」固定文言を根絶するために追加（2026-09-12）。未生成時は null＝画面は「—」。
+export interface RiskInfo {
+  monthly_dd_stop_pct: number | null;
+  total_dd_stop_pct: number | null;
+}
+
 export interface MetaResponse {
   ok: boolean;
   generated_at: string | null;
   capital: CapitalInfo;
+  risk: RiskInfo;
 }
 
 function empty(ok: boolean): MetaResponse {
@@ -25,6 +33,7 @@ function empty(ok: boolean): MetaResponse {
     ok,
     generated_at: null,
     capital: { real_total: null, paper_total: null, real_risk_per_trade_yen: null },
+    risk: { monthly_dd_stop_pct: null, total_dd_stop_pct: null },
   };
 }
 
@@ -42,6 +51,7 @@ export async function readMeta(): Promise<MetaResponse> {
     return empty(false);
   }
   const cap: Partial<CapitalInfo> = data.capital ?? {};
+  const risk: Partial<RiskInfo> = data.risk ?? {};
   return {
     ok: true,
     generated_at: data.generated_at ?? null,
@@ -50,6 +60,12 @@ export async function readMeta(): Promise<MetaResponse> {
       paper_total: typeof cap.paper_total === "number" ? cap.paper_total : null,
       real_risk_per_trade_yen:
         typeof cap.real_risk_per_trade_yen === "number" ? cap.real_risk_per_trade_yen : null,
+    },
+    risk: {
+      monthly_dd_stop_pct:
+        typeof risk.monthly_dd_stop_pct === "number" ? risk.monthly_dd_stop_pct : null,
+      total_dd_stop_pct:
+        typeof risk.total_dd_stop_pct === "number" ? risk.total_dd_stop_pct : null,
     },
   };
 }
